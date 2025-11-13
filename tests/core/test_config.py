@@ -13,6 +13,8 @@ def test_load_config_defaults() -> None:
     assert isinstance(cfg, PipelineConfig)
     assert cfg.segment.fps_keyframe == 1.0
     assert cfg.theme_match.score_threshold == 0.2
+    assert cfg.embedding.backend == "mean_color"
+    assert cfg.embedding.preset == "cpu-small"
     assert cfg.assets_root.name == "assets"
 
 
@@ -27,8 +29,10 @@ segment:
 
     monkeypatch.setenv("VIDSYNTH_SEGMENT_FPS", "2.5")
     monkeypatch.setenv("VIDSYNTH_STORAGE_ROOT", str(tmp_path / "assets-store"))
+    monkeypatch.setenv("VIDSYNTH_EMBEDDING_DEVICE", "cuda")
 
     cfg = load_config(custom_cfg)
 
     assert cfg.segment.fps_keyframe == 2.5  # 环境变量覆盖文件值
     assert cfg.assets_root == (tmp_path / "assets-store").resolve()
+    assert cfg.embedding.device == "cuda"

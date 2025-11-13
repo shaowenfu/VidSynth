@@ -22,6 +22,9 @@ class SegmentConfig(BaseModel):
     histogram_threshold: float = 0.45
     min_clip_seconds: float = 2.0
     max_clip_seconds: float = 6.0
+    merge_short_segments: bool = True
+    keep_last_short_segment: bool = True
+    split_long_segments: bool = True
 
 
 class ThemeMatchConfig(BaseModel):
@@ -40,6 +43,17 @@ class ExportConfig(BaseModel):
     video_crossfade_ms: int = 200
 
 
+class EmbeddingConfig(BaseModel):
+    """Embedding 后端配置，支持小模型 CPU 与大模型 GPU 两套策略。"""
+
+    backend: str = "mean_color"  # mean_color | open_clip
+    preset: str | None = "cpu-small"
+    model_name: str = "ViT-B-32"
+    pretrained: str = "laion400m_e32"
+    device: str = "cpu"
+    precision: str = "fp32"  # fp32 | amp
+
+
 class PipelineConfig(BaseModel):
     """聚合各阶段配置，并包含共享路径。"""
 
@@ -48,6 +62,7 @@ class PipelineConfig(BaseModel):
     segment: SegmentConfig = Field(default_factory=SegmentConfig)
     theme_match: ThemeMatchConfig = Field(default_factory=ThemeMatchConfig)
     export: ExportConfig = Field(default_factory=ExportConfig)
+    embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     assets_root: Path = Field(default_factory=resolve_assets_root)
     raw: Dict[str, Any] = Field(default_factory=dict, description="原始配置字典，便于调试。")
 
@@ -63,6 +78,7 @@ class PipelineConfig(BaseModel):
             "segment": self.segment.model_dump(),
             "theme_match": self.theme_match.model_dump(),
             "export": self.export.model_dump(),
+            "embedding": self.embedding.model_dump(),
             "assets_root": str(self.assets_root),
         }
 
@@ -84,6 +100,8 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
 ENV_OVERRIDE_MAP: Dict[str, Tuple[Sequence[str], Callable[[str], Any]]] = {
     "VIDSYNTH_SEGMENT_FPS": (("segment", "fps_keyframe"), float),
     "VIDSYNTH_THEME_SCORE_THRESHOLD": (("theme_match", "score_threshold"), float),
+    "VIDSYNTH_EMBEDDING_BACKEND": (("embedding", "backend"), str),
+    "VIDSYNTH_EMBEDDING_DEVICE": (("embedding", "device"), str),
 }
 
 

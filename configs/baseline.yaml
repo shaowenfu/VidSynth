@@ -5,6 +5,9 @@ segment:
   histogram_threshold: 0.45
   min_clip_seconds: 2.0
   max_clip_seconds: 6.0
+  merge_short_segments: true
+  keep_last_short_segment: true
+  split_long_segments: true
 
 theme_match:
   score_threshold: 0.2
@@ -15,3 +18,11 @@ export:
   video_bitrate: "8M"
   audio_fade_ms: 150
   video_crossfade_ms: 200
+
+embedding:
+  backend: "open_clip"
+  preset: "cpu-small"
+  model_name: "ViT-B-32"
+  pretrained: "laion400m_e32"
+  device: "cpu"
+  precision: "fp32"
