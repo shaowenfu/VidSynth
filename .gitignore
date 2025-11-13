@@ -168,6 +168,10 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
+# 项目素材目录：忽略大文件但保留占位符
+assets/
+!assets/.gitkeep
+
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore

@@ -1,0 +1,46 @@
+# 项目基础配置与依赖管理，遵循奥卡姆剃刀原则保持最小化
+[project]
+name = "vidsynth"
+version = "0.1.0"
+description = "Theme-driven multi-source video synthesis MVP"
+authors = [{ name = "VidSynth Team" }]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "torch",
+    "opencv-python",
+    "ffmpeg-python",
+    "pydantic>=2.0",
+    "typer>=0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "black",
+    "pre-commit",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "ANN"]
+ignore = ["ANN101", "ANN102"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra --strict-markers"
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
