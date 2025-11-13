@@ -1,0 +1,17 @@
+# MVP 默认配置：在后续实验中可复制此文件并按场景调整
+segment:
+  fps_keyframe: 1.0
+  cosine_threshold: 0.3
+  histogram_threshold: 0.45
+  min_clip_seconds: 2.0
+  max_clip_seconds: 6.0
+
+theme_match:
+  score_threshold: 0.2
+  negative_weight: 0.8
+
+export:
+  video_codec: "libx264"
+  video_bitrate: "8M"
+  audio_fade_ms: 150
+  video_crossfade_ms: 200
