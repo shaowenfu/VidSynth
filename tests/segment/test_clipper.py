@@ -75,3 +75,19 @@ def test_split_long_segments() -> None:
 
     assert len(clips) >= 3
     assert all((clip.t_end - clip.t_start) <= cfg.max_clip_seconds for clip in clips)
+
+
+def test_single_sample_clip_has_positive_duration() -> None:
+    samples = [_sample(24.024, 0.5)]
+    cfg = SegmentConfig(fps_keyframe=1.0, keep_last_short_segment=True)
+
+    clips = build_clips_from_samples(
+        video_id="vid-4",
+        samples=samples,
+        boundaries=[(0, 1)],
+        seg_cfg=cfg,
+        emb_model_name="test-model",
+    )
+
+    assert len(clips) == 1
+    assert clips[0].t_end > clips[0].t_start

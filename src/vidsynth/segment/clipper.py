@@ -131,27 +131,45 @@ def _split_subset(
     subset: Sequence[EmbeddedSample],
     seg_cfg: SegmentConfig,
 ) -> List[Sequence[EmbeddedSample]]:
+    """将过长的视频片段拆分成多个小片段，确保每个片段不超过最大时长限制。"""
+    
+    # 如果禁用长片段拆分，直接返回原片段
     if not seg_cfg.split_long_segments:
         return [subset]
+    
+    # 计算当前片段总时长
     duration = _duration(subset)
+    
+    # 如果总时长未超过限制，无需拆分
     if duration <= seg_cfg.max_clip_seconds:
         return [subset]
+    
+    # 初始化拆分结果列表和当前块
     chunks: List[Sequence[EmbeddedSample]] = []
     chunk: List[EmbeddedSample] = []
     chunk_start = subset[0].timestamp
+    
+    # 遍历所有样本，按时间戳拆分
     for sample in subset:
+        # 如果当前块为空，添加第一个样本并记录起始时间
         if not chunk:
             chunk.append(sample)
             chunk_start = sample.timestamp
             continue
+            
+        # 如果当前样本仍在时间限制内，添加到当前块
         if sample.timestamp - chunk_start <= seg_cfg.max_clip_seconds:
             chunk.append(sample)
         else:
+            # 否则完成当前块，开始新块
             chunks.append(chunk)
             chunk = [sample]
             chunk_start = sample.timestamp
+    
+    # 添加最后一个块（如果存在）
     if chunk:
         chunks.append(chunk)
+    
     return chunks
 
 
@@ -165,9 +183,22 @@ def _create_clip(
 ) -> Clip:
     avg_embedding = np.mean([sample.embedding for sample in samples], axis=0)
     t_start = samples[0].timestamp
-    max_end = t_start + seg_cfg.max_clip_seconds
     actual_end = samples[-1].timestamp
-    t_end = min(actual_end, max_end) if seg_cfg.split_long_segments else actual_end
+
+    if seg_cfg.split_long_segments:
+        max_end = t_start + seg_cfg.max_clip_seconds
+        t_end = min(actual_end, max_end)
+    else:
+        t_end = actual_end
+
+    # 单帧区域会导致 t_end == t_start，回退到抽帧间隔，避免零长度 clip
+    if t_end <= t_start:
+        frame_interval = 1.0 / seg_cfg.fps_keyframe if seg_cfg.fps_keyframe > 0 else 1.0
+        fallback_end = t_start + frame_interval
+        if seg_cfg.split_long_segments:
+            fallback_end = min(fallback_end, t_start + seg_cfg.max_clip_seconds)
+        t_end = fallback_end
+
     return Clip(
         video_id=video_id,
         clip_id=clip_id,
