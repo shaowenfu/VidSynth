@@ -169,7 +169,7 @@ def main() -> None:
             if i != len(segments) - 1:
                 fw.write(f"file '{black.as_posix()}'\n")
 
-    out_file = out_dir / f"{video.stem}_step1_preview_with_black.mp4"
+    out_file = out_dir / f"{video.stem}_preview_with_black.mp4"
     _run(
         [
             ff,

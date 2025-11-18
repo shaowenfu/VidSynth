@@ -77,3 +77,37 @@ class ThemeQuery:
 
     def negative_texts(self) -> List[str]:
         return [proto.text for proto in self.negatives]
+
+
+@dataclass(slots=True)
+class ThemeScore:
+    """Step2 输出：针对单个 Clip 的主题打分结果。"""
+
+    clip_id: int
+    video_id: str
+    theme: str
+    score: float
+    s_pos: float
+    s_neg: float
+    emb_model: str
+    created_at: datetime
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        payload = asdict(self)
+        payload["created_at"] = self.created_at.isoformat()
+        return payload
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ThemeScore":
+        return cls(
+            clip_id=int(data["clip_id"]),
+            video_id=data["video_id"],
+            theme=data["theme"],
+            score=float(data["score"]),
+            s_pos=float(data["s_pos"]),
+            s_neg=float(data["s_neg"]),
+            emb_model=data["emb_model"],
+            created_at=datetime.fromisoformat(data["created_at"]),
+            metadata=dict(data.get("metadata", {})),
+        )

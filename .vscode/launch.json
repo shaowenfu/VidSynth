@@ -1,0 +1,135 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: 当前文件",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "VidSynth: 视频切分 (segment-video)",
+            "type": "python",
+            "request": "launch",
+            "module": "vidsynth.cli",
+            "args": [
+                "segment-video"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src"
+            }
+        },
+        {
+            "name": "VidSynth: 视频切分 (带自定义参数)",
+            "type": "python",
+            "request": "launch",
+            "module": "vidsynth.cli",
+            "args": [
+                "segment-video",
+                "assets/raw/TheBestRunningShoes.mp4",
+                "--video-id",
+                "test_video2",
+                "--embedding-preset",
+                "cpu-small"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src"
+            }
+        },
+        {
+            "name": "VidSynth: 主题匹配 (match-theme)",
+            "type": "python",
+            "request": "launch",
+            "module": "vidsynth.cli",
+            "args": [
+                "match-theme",
+                "output/clips.json",
+                "beach",
+                "--output",
+                "output/beach_scores.json"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src"
+            }
+        },
+        {
+            "name": "VidSynth: 主题匹配 (高级参数)",
+            "type": "python",
+            "request": "launch",
+            "module": "vidsynth.cli",
+            "args": [
+                "match-theme",
+                "output/clips.json",
+                "city skyline",
+                "--positive",
+                "sunset skyline",
+                "--negative",
+                "indoor office",
+                "--format",
+                "csv",
+                "--score-threshold",
+                "0.35",
+                "--output",
+                "output/city_scores.csv"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src"
+            }
+        },
+        {
+            "name": "VidSynth: 主题匹配测试 (pytest)",
+            "type": "python",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "-v",
+                "tests/theme_match"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src"
+            }
+        },
+        {
+            "name": "VidSynth: 运行测试",
+            "type": "python",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "-v",
+                "tests/"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src"
+            }
+        },
+        {
+            "name": "VidSynth: 运行特定测试文件",
+            "type": "python",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "-v",
+                "${file}"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src"
+            }
+        }
+    ]
+}

@@ -2,7 +2,7 @@
 __pycache__/
 *.py[codz]
 *$py.class
-
+output
 # C extensions
 *.so
 
@@ -10,6 +10,7 @@ __pycache__/
 .Python
 build/
 develop-eggs/
+My_docs/
 dist/
 downloads/
 eggs/

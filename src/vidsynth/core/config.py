@@ -14,6 +14,29 @@ from .paths import ASSETS_ENV_KEY, resolve_assets_root
 CONFIG_ENV_KEY = "VIDSYNTH_CONFIG_PATH"
 
 
+def _load_local_env() -> None:
+    """最小 .env 解析器，避免额外依赖。"""
+
+    root = Path(__file__).resolve().parents[3]
+    env_path = root / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"')
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_local_env()
+
+
 class SegmentConfig(BaseModel):
     """片段切分相关参数，默认值与 MVP 文档保持一致。"""
 
@@ -84,7 +107,7 @@ class PipelineConfig(BaseModel):
 
 
 def _default_config_path() -> Path:
-    return Path(__file__).resolve().parents[2] / "configs" / "baseline.yaml"
+    return Path(__file__).resolve().parents[3] / "configs" / "baseline.yaml"
 
 
 def _load_yaml(path: Path) -> Dict[str, Any]:

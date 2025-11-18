@@ -24,6 +24,7 @@ pre-commit install
   export VIDSYNTH_EMBEDDING_BACKEND=open_clip
   export VIDSYNTH_EMBEDDING_DEVICE=cuda
   ```
+- 本地开发默认加载根目录 `.env`（由配置模块自动解析），可在其中填入 `DEEPSEEK_API_KEY` 等敏感配置而无需暴露到 shell。
 
 ## 使用流程
 1. **Step1: 片段切分**
@@ -35,7 +36,15 @@ pre-commit install
    - 输入：单个视频路径 + 配置。
    - 输出：`out/beach_clips.json`，包含 `Clip` 对象数组（`video_id`、`t_start/t_end`、`vis_emb_avg`、`emb_model` 等）。
    - 日志：打印镜头切分统计、丢弃片段数量。
-2. **Step2: 主题匹配（待实现）**：将 `Clip` JSON 与主题描述传入匹配模块，输出每个 clip 的 `theme_score`。
+2. **Step2: 主题匹配**
+   ```bash
+   vidsynth match-theme output/beach_clips.json "beach vacation" \\
+     --output output/beach_scores.json \\
+     --embedding-backend open_clip --embedding-device cpu
+   ```
+   - 输入：Step1 导出的 Clip JSON + 主题关键词（可附加 `--positive/--negative` 描述）。
+   - 输出：`theme_score` JSON/CSV，包含 `score/s_pos/s_neg` 等字段，可依 `--score-threshold` 筛选。
+   - 说明：若 Clip 使用 `mean_color` 占位 embedding，会安全回退为 0 分，需改用 OpenCLIP 重新切分以获取有效结果。
 3. **Step3: 片段筛选/合并（部分在 Step1 中实现）**：当前 `segment_video` 已处理短片段合并与长片段拆分；未来可在此基础上叠加主题阈值筛选。
 4. **Step4: 拼接导出（计划中）**：读取经过筛选的 Clip 列表，通过 `ffmpeg` 导出 MP4 与 JSON EDL。
 
@@ -47,6 +56,7 @@ pre-commit install
 - `tests/`: 单元与集成测试，结构与 `src` 镜像。
 - `docs/CONFIG_CLI.md`: 配置字段与 CLI 命令详解。
 - `docs/PROGRESS.md`: 针对 `develop_docs/MVP_framework.md` 的阶段进度记录。
+- `docs/STEP1_VALIDATION.md` / `docs/STEP2_VALIDATION.md`: 各阶段的验证手册。
 - `AGENTS.md`: 贡献者指南。
 
 ## 输出产物
