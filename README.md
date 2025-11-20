@@ -14,7 +14,7 @@ pip install -e .[dev]
 pre-commit install
 ```
 
-- 默认配置位于 `configs/baseline.yaml`，字段说明详见 `docs/CONFIG_CLI.md`。
+- 默认配置位于 `configs/baseline.yaml`；字段说明参考源码 `src/vidsynth/core/config.py` 与 CLI `--help`。
 - 若使用 OpenCLIP，请确保已安装 `open-clip-torch`、`pillow`，并根据机器资源设置：
   - CPU: `embedding.backend=open_clip`, `preset=cpu-small`, `device=cpu`
   - GPU: `preset=gpu-large`, `device=cuda` 或 `cuda:0`
@@ -38,31 +38,44 @@ pre-commit install
    - 日志：打印镜头切分统计、丢弃片段数量。
 2. **Step2: 主题匹配**
    ```bash
-   vidsynth match-theme output/beach_clips.json "beach vacation" \\
-     --output output/beach_scores.json \\
+   vidsynth match-theme output/beach_clips.json "beach vacation" \
+     --output output/theme_scores.json \
      --embedding-backend open_clip --embedding-device cpu
    ```
    - 输入：Step1 导出的 Clip JSON + 主题关键词（可附加 `--positive/--negative` 描述）。
    - 输出：`theme_score` JSON/CSV，包含 `score/s_pos/s_neg` 等字段，可依 `--score-threshold` 筛选。
    - 说明：若 Clip 使用 `mean_color` 占位 embedding，会安全回退为 0 分，需改用 OpenCLIP 重新切分以获取有效结果。
-3. **Step3: 片段筛选/合并（部分在 Step1 中实现）**：当前 `segment_video` 已处理短片段合并与长片段拆分；未来可在此基础上叠加主题阈值筛选。
-4. **Step4: 拼接导出（计划中）**：读取经过筛选的 Clip 列表，通过 `ffmpeg` 导出 MP4 与 JSON EDL。
+3. **Step3: 片段筛选/合并**
+   ```bash
+   vidsynth sequence-clips output/beach_clips.json output/theme_scores.json \
+     --output output/edl.json --upper 0.2 --lower 0.15
+   ```
+   - 输出：`output/edl.json`，按连续片段合并的剪辑列表（含 `video_id/t_start/t_end/reason`）。
+   - 说明：使用上/下阈值的迟滞策略，减少主题分数抖动导致的片段断续。
+4. **Step4: 拼接导出**
+   ```bash
+   vidsynth export-edl output/edl.json assets/raw/beach.mp4 \
+     --output output/output_demo.mp4
+   ```
+   - 输出：`output/output_demo.mp4`（H.264 编码，固定码率），音频每段头尾添加淡入淡出。
+   - 说明：当前 MVP 简化为单源视频；多源扩展将通过在 EDL 中携带路径来支持。
 
 ## 目录结构速览
 - `src/vidsynth/core`: 数据模型、配置、日志、路径工具。
-- `src/vidsynth/segment`: Step2 实现（采样、embedding、镜头切分、标签接口）。
+- `src/vidsynth/segment`: Step1 实现（采样、embedding、镜头切分）。
+- `src/vidsynth/theme_match`: Step2 实现（主题原型与打分）。
+- `src/vidsynth/sequence`: Step3 实现（片段选择与 EDL 合并）。
+- `src/vidsynth/export`: Step4 实现（按 EDL 导出 MP4）。
 - `configs/`: baseline 及自定义 YAML。
 - `scripts/`: 批处理/实验脚本。
 - `tests/`: 单元与集成测试，结构与 `src` 镜像。
-- `docs/CONFIG_CLI.md`: 配置字段与 CLI 命令详解。
-- `docs/PROGRESS.md`: 针对 `develop_docs/MVP_framework.md` 的阶段进度记录。
-- `docs/STEP1_VALIDATION.md` / `docs/STEP2_VALIDATION.md`: 各阶段的验证手册。
-- `AGENTS.md`: 贡献者指南。
+- `My_docs/MVP_framework.md`: 框架设计目标与阶段说明。
+- `My_docs/PROGRESS.md`: 针对 `My_docs/MVP_framework.md` 的阶段进度记录。
+- `My_docs/AGENTS.md`: 贡献者指南与项目结构约定。
 
 ## 输出产物
-- `*.json` Clip 清单：每个 clip 包含时间段、embedding 均值、使用的模型等，可直接供主题匹配或序列化存储。
-- 未来步骤（待完成）：主题得分文件、拼接后 MP4、EDL 列表。
+- `clips.json`：Step1 片段清单（含时间段、embedding 均值、模型信息）。
+- `theme_scores.json`：Step2 主题得分（含 `score/s_pos/s_neg`）。
+- `edl.json`：Step3 合并后的剪辑列表。
+- `output_demo.mp4`：Step4 导出成片。
 
-## 贡献指南
-- 请遵循 `AGENTS.md`、`docs/CONFIG_CLI.md` 与 `docs/PROGRESS.md` 指引，确保实现与文档一致。
-- 提交前运行 `pytest` + `ruff check` + `black` 并确保 CLI 示例可以执行。

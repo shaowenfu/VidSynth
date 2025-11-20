@@ -15,6 +15,7 @@ from vidsynth.segment.clipper import SegmentResult
 from vidsynth.segment.loader import VideoOpenError
 from vidsynth.theme_match import ThemeMatcher, build_theme_query
 from vidsynth.core.config import _load_local_env
+from vidsynth.sequence import Sequencer
 
 _load_local_env()
 app = typer.Typer(help="VidSynth 开发 CLI")
@@ -159,6 +160,66 @@ def match_theme_cmd(
         typer.echo("Top clips:")
         for item in preview:
             typer.echo(f" - clip#{item.clip_id} score={item.score:.3f} pos={item.s_pos:.3f} neg={item.s_neg:.3f}")
+
+
+@app.command("sequence-clips")
+def sequence_clips_cmd(
+    clips: Path = typer.Argument(Path("output/clips.json"), exists=True, resolve_path=True, help="Step1 产出的 Clip JSON 路径"),
+    theme_scores: Path = typer.Argument(Path("output/theme_scores.json"), exists=True, resolve_path=True, help="Step2 产出的主题得分 JSON 路径"),
+    output_edl: Path = typer.Option(Path("output/edl.json"), "--output", "-o", help="EDL JSON 输出路径"),
+    threshold_upper: Optional[float] = typer.Option(None, "--upper", help="选择阈值上界"),
+    threshold_lower: Optional[float] = typer.Option(None, "--lower", help="迟滞阈值下界"),
+    min_clip_seconds: Optional[float] = typer.Option(None, "--min-seconds", help="合并后片段最短时长"),
+    max_clip_seconds: Optional[float] = typer.Option(None, "--max-seconds", help="合并后片段最长时长"),
+    config_path: Optional[Path] = typer.Option(None, "--config", help="自定义配置文件（用于读取默认阈值）"),
+    log_level: str = typer.Option("INFO", "--log-level", help="日志级别"),
+) -> None:
+    """将主题得分与 Clips 对齐，生成连续超阈值的 EDL。"""
+
+    setup_logging(log_level)
+    cfg = _resolve_config(config_path)
+
+    clip_list = _load_clips_from_file(clips)
+    scores_payload = json.loads(theme_scores.read_text(encoding="utf-8"))
+    scores = [ThemeScore.from_dict(entry) for entry in scores_payload]
+
+    upper = threshold_upper if threshold_upper is not None else cfg.theme_match.score_threshold
+    lower = threshold_lower if threshold_lower is not None else upper
+    seq = Sequencer(
+        threshold_upper=upper,
+        threshold_lower=lower,
+        min_clip_seconds=min_clip_seconds if min_clip_seconds is not None else cfg.segment.min_clip_seconds,
+        max_clip_seconds=max_clip_seconds if max_clip_seconds is not None else cfg.segment.max_clip_seconds,
+    )
+    result = seq.sequence(clip_list, scores)
+
+    edl_data = [
+        {"video_id": item.video_id, "t_start": item.t_start, "t_end": item.t_end, "reason": item.reason}
+        for item in result.edl
+    ]
+    output_edl.parent.mkdir(parents=True, exist_ok=True)
+    output_edl.write_text(json.dumps(edl_data, ensure_ascii=False, indent=2), encoding="utf-8")
+    typer.echo(f"生成 EDL 段数：{len(edl_data)}，选中 clips：{result.total_selected} / {result.total_clips}")
+
+
+@app.command("export-edl")
+def export_edl_cmd(
+    edl: Path = typer.Argument(Path("output/edl.json"), exists=True, resolve_path=True, help="EDL JSON 路径"),
+    source_video: Path = typer.Argument(Path("assets/raw/ComparingSnowGoggles.mp4"), exists=True, resolve_path=True, help="源视频路径（当前 MVP 以单源简化）"),
+    output: Path = typer.Option(Path("output/output_demo.mp4"), "--output", "-o", help="输出 MP4 路径"),
+    config_path: Optional[Path] = typer.Option(None, "--config", help="自定义配置文件"),
+    log_level: str = typer.Option("INFO", "--log-level", help="日志级别"),
+) -> None:
+    """读取 EDL 并导出 MP4。当前 MVP 假设所有片段来自同一源视频。"""
+
+    setup_logging(log_level)
+    cfg = _resolve_config(config_path)
+    from vidsynth.export import Exporter
+    exporter = Exporter(cfg)
+    items = exporter.load_edl(edl)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    exporter.export(items, source_video=source_video, output_path=output)
+    typer.echo(f"导出完成：{output}")
 
 
 if __name__ == "__main__":  # pragma: no cover

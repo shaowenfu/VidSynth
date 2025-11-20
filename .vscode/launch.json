@@ -130,6 +130,44 @@
             "env": {
                 "PYTHONPATH": "${workspaceFolder}/src"
             }
-        }
+        },
+            {
+      "name": "VidSynth: Sequence Clips",
+      "type": "python",
+      "request": "launch",
+      "module": "vidsynth.cli",
+      "args": [
+        "sequence-clips",
+        "output/clips.json",
+        "output/theme_scores.json",
+        "--output",
+        "output/edl.json",
+        "--upper",
+        "0.2",
+        "--lower",
+        "0.15"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "envFile": "${workspaceFolder}/.env"
+    },
+    {
+      "name": "VidSynth: Export EDL",
+      "type": "python",
+      "request": "launch",
+      "module": "vidsynth.cli",
+      "args": [
+        "export-edl",
+        "output/edl.json",
+        "assets/raw/ComparingSnowGoggles.mp4",
+        "--output",
+        "output/output_demo.mp4"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "envFile": "${workspaceFolder}/.env"
+    }
     ]
 }
