@@ -2,37 +2,15 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: 当前文件",
-            "type": "python",
-            "request": "launch",
-            "program": "${file}",
-            "console": "integratedTerminal",
-            "justMyCode": true
-        },
-        {
-            "name": "VidSynth: 视频切分 (segment-video)",
-            "type": "python",
-            "request": "launch",
-            "module": "vidsynth.cli",
-            "args": [
-                "segment-video"
-            ],
-            "console": "integratedTerminal",
-            "justMyCode": true,
-            "env": {
-                "PYTHONPATH": "${workspaceFolder}/src"
-            }
-        },
-        {
             "name": "VidSynth: 视频切分 (带自定义参数)",
             "type": "python",
             "request": "launch",
             "module": "vidsynth.cli",
             "args": [
                 "segment-video",
-                "assets/raw/TheBestRunningShoes.mp4",
+                "assets/raw/Summer_vacation.mp4",
                 "--video-id",
-                "test_video2",
+                "test_video3",
                 "--embedding-preset",
                 "cpu-small"
             ],
@@ -49,10 +27,10 @@
             "module": "vidsynth.cli",
             "args": [
                 "match-theme",
-                "output/clips_TheBestRunningShoes.json",
-                "shoes",
+                "output/clips_Summer_vacation.json",
+                "sand beach",
                 "--output",
-                "output/shoes_scores.json"
+                "output/sand_beach_scores.json"
             ],
             "console": "integratedTerminal",
             "justMyCode": true,
@@ -61,113 +39,42 @@
             }
         },
         {
-            "name": "VidSynth: 主题匹配 (高级参数)",
+            "name": "VidSynth: Sequence Clips",
             "type": "python",
             "request": "launch",
             "module": "vidsynth.cli",
             "args": [
-                "match-theme",
-                "output/clips.json",
-                "city skyline",
-                "--positive",
-                "sunset skyline",
-                "--negative",
-                "indoor office",
-                "--format",
-                "csv",
-                "--score-threshold",
-                "0.35",
+                "sequence-clips",
+                "output/clips_Summer_vacation.json",
+                "output/sand_beach_scores.json",
                 "--output",
-                "output/city_scores.csv"
+                "output/edl_sand_beach.json",
+                "--upper",
+                "0.12",
+                "--lower",
+                "0.10"
             ],
+            "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "env": {
-                "PYTHONPATH": "${workspaceFolder}/src"
-            }
+            "envFile": "${workspaceFolder}/.env"
         },
         {
-            "name": "VidSynth: 主题匹配测试 (pytest)",
+            "name": "VidSynth: Export EDL",
             "type": "python",
             "request": "launch",
-            "module": "pytest",
+            "module": "vidsynth.cli",
             "args": [
-                "-v",
-                "tests/theme_match"
+                "export-edl",
+                "output/edl_sand_beach.json",
+                "assets/raw/Summer_vacation.mp4",
+                "--output",
+                "output/output_sand_beach.mp4"
             ],
+            "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
-            "justMyCode": false,
-            "env": {
-                "PYTHONPATH": "${workspaceFolder}/src"
-            }
-        },
-        {
-            "name": "VidSynth: 运行测试",
-            "type": "python",
-            "request": "launch",
-            "module": "pytest",
-            "args": [
-                "-v",
-                "tests/"
-            ],
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "env": {
-                "PYTHONPATH": "${workspaceFolder}/src"
-            }
-        },
-        {
-            "name": "VidSynth: 运行特定测试文件",
-            "type": "python",
-            "request": "launch",
-            "module": "pytest",
-            "args": [
-                "-v",
-                "${file}"
-            ],
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "env": {
-                "PYTHONPATH": "${workspaceFolder}/src"
-            }
-        },
-            {
-      "name": "VidSynth: Sequence Clips",
-      "type": "python",
-      "request": "launch",
-      "module": "vidsynth.cli",
-      "args": [
-        "sequence-clips",
-        "output/clips_TheBestRunningShoes.json",
-        "output/shoes_scores.json",
-        "--output",
-        "output/edl_shoes.json",
-        "--upper",
-        "0.12",
-        "--lower",
-        "0.10"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "justMyCode": true,
-      "envFile": "${workspaceFolder}/.env"
-    },
-    {
-      "name": "VidSynth: Export EDL",
-      "type": "python",
-      "request": "launch",
-      "module": "vidsynth.cli",
-      "args": [
-        "export-edl",
-        "output/edl_shoes.json",
-        "assets/raw/TheBestRunningShoes.mp4",
-        "--output",
-        "output/output_shoes.mp4"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "justMyCode": true,
-      "envFile": "${workspaceFolder}/.env"
-    }
+            "justMyCode": true,
+            "envFile": "${workspaceFolder}/.env"
+        }
     ]
 }
