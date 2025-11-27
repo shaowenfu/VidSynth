@@ -7,7 +7,9 @@ from __future__ import annotations
 # 4) 将所有段顺序拼接，按配置输出 H.264 MP4
 
 import json
+import os
 from dataclasses import dataclass
+import tempfile
 from pathlib import Path
 from typing import List, Sequence
 
@@ -65,48 +67,80 @@ class Exporter:
         当前 MVP 简化为单源视频：`source_video` 指向唯一输入；未来多源需在 EDL 中携带路径并为每源建立输入流。
         """
 
-        segments: List[ffmpeg.nodes.FilterNode] = []
-        audio_segments: List[ffmpeg.nodes.FilterNode] = []
+        # 验证输入文件存在
+        if not source_video.exists():
+            raise FileNotFoundError(f"源视频文件不存在: {source_video}")
+        
+        # 验证输出目录可写
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        if not os.access(str(output_path.parent), os.W_OK):
+            raise PermissionError(f"输出目录不可写: {output_path.parent}")
 
-        input_stream = ffmpeg.input(str(source_video))
-        for item in edl:
-            # 视频裁剪并重置时间戳，使每段从 0 开始，便于 concat
-            v = (
-                input_stream.video
-                .trim(start=item.t_start, end=item.t_end)
-                .setpts("PTS-STARTPTS")
+        # 逐段裁剪到临时文件，再用 concat demuxer 合并，避免巨型 filter_graph 造成内存/线程飙升
+        with tempfile.TemporaryDirectory(prefix="vidsynth_edl_") as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            segment_paths: List[Path] = []
+            for idx, item in enumerate(edl):
+                duration = max(0.0, item.t_end - item.t_start)
+                if duration <= 0:
+                    continue
+
+                # 单段输入，使用 -ss/-to 限定解码窗口，减轻资源占用
+                segment_input = ffmpeg.input(str(source_video), ss=item.t_start, to=item.t_end)
+                v = segment_input.video.setpts("PTS-STARTPTS")
+                a = segment_input.audio
+
+                fade_ms = self.cfg.export.audio_fade_ms
+                fade_s = fade_ms / 1000.0
+                if fade_s > 0.0 and duration >= 2 * fade_s:
+                    a = a.filter("afade", type="in", start_time=0, duration=fade_s)
+                    a = a.filter("afade", type="out", start_time=duration - fade_s, duration=fade_s)
+
+                seg_path = tmpdir_path / f"segment_{idx:04d}.mp4"
+                seg_output = ffmpeg.output(
+                    v,
+                    a,
+                    str(seg_path),
+                    vcodec=self.cfg.export.video_codec,
+                    video_bitrate=self.cfg.export.video_bitrate,
+                    acodec="aac",
+                    audio_bitrate="192k",
+                    movflags="+faststart",
+                )
+                seg_output = ffmpeg.overwrite_output(seg_output)
+                try:
+                    seg_output.run(quiet=True, capture_stdout=True, capture_stderr=True)
+                except ffmpeg.Error as e:  # pragma: no cover - 依赖环境 ffmpeg
+                    error_msg = f"裁剪片段失败 (idx={idx}, {item.t_start}-{item.t_end}): {e}"
+                    if hasattr(e, "stderr") and e.stderr:
+                        error_msg += f"\nffmpeg stderr 输出:\n{e.stderr.decode('utf-8', errors='replace')}"
+                    raise RuntimeError(error_msg) from e
+
+                segment_paths.append(seg_path)
+
+            if not segment_paths:
+                raise ValueError("EDL 为空或全部片段时长为 0，无法导出")
+
+            # 准备 concat 列表文件
+            concat_list = tmpdir_path / "concat.txt"
+            concat_list.write_text(
+                "\n".join(f"file '{path}'" for path in segment_paths),
+                encoding="utf-8",
             )
-            # 音频裁剪并重置时间戳
-            a = (
-                input_stream.audio
-                .atrim(start=item.t_start, end=item.t_end)
-                .asetpts("PTS-STARTPTS")
+
+            final_output = ffmpeg.input(str(concat_list), format="concat", safe=0)
+            out = ffmpeg.output(
+                final_output,
+                str(output_path),
+                c="copy",
+                movflags="+faststart",
             )
-            # 音频淡入淡出（避免爆音与硬断）
-            fade_ms = self.cfg.export.audio_fade_ms
-            duration = max(0.0, item.t_end - item.t_start)
-            fade_s = fade_ms / 1000.0
-            if fade_s > 0.0 and duration >= 2 * fade_s:
-                a = a.filter("afade", type="in", start_time=0, duration=fade_s)
-                a = a.filter("afade", type="out", start_time=duration - fade_s, duration=fade_s)
-            segments.append(v)
-            audio_segments.append(a)
+            out = ffmpeg.overwrite_output(out)
 
-        if not segments:
-            # 早退出：无段可拼接
-            raise ValueError("EDL 为空，无法导出")
-
-        # concat 参数：v=1 表示视频流数量为 1（逐段顺序连接），a=0 表示不处理音频；反之亦然
-        vcat = ffmpeg.concat(*segments, v=1, a=0)
-        acat = ffmpeg.concat(*audio_segments, v=0, a=1)
-
-        out = ffmpeg.output(
-            vcat, acat,
-            str(output_path),
-            vcodec=self.cfg.export.video_codec,
-            video_bitrate=self.cfg.export.video_bitrate,
-            acodec="aac",
-            audio_bitrate="192k",
-        )
-        out = ffmpeg.overwrite_output(out)
-        out.run(quiet=True)
+            try:
+                out.run(quiet=True, capture_stdout=True, capture_stderr=True)
+            except ffmpeg.Error as e:  # pragma: no cover
+                error_msg = f"ffmpeg 拼接失败: {e}"
+                if hasattr(e, "stderr") and e.stderr:
+                    error_msg += f"\nffmpeg stderr 输出:\n{e.stderr.decode('utf-8', errors='replace')}"
+                raise RuntimeError(error_msg) from e

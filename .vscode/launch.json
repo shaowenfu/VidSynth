@@ -49,10 +49,10 @@
             "module": "vidsynth.cli",
             "args": [
                 "match-theme",
-                "output/clips.json",
-                "beach",
+                "output/clips_TheBestRunningShoes.json",
+                "shoes",
                 "--output",
-                "output/beach_scores.json"
+                "output/shoes_scores.json"
             ],
             "console": "integratedTerminal",
             "justMyCode": true,
@@ -138,14 +138,14 @@
       "module": "vidsynth.cli",
       "args": [
         "sequence-clips",
-        "output/clips.json",
-        "output/theme_scores.json",
+        "output/clips_TheBestRunningShoes.json",
+        "output/shoes_scores.json",
         "--output",
-        "output/edl.json",
+        "output/edl_shoes.json",
         "--upper",
-        "0.2",
+        "0.12",
         "--lower",
-        "0.15"
+        "0.10"
       ],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
@@ -159,10 +159,10 @@
       "module": "vidsynth.cli",
       "args": [
         "export-edl",
-        "output/edl.json",
-        "assets/raw/ComparingSnowGoggles.mp4",
+        "output/edl_shoes.json",
+        "assets/raw/TheBestRunningShoes.mp4",
         "--output",
-        "output/output_demo.mp4"
+        "output/output_shoes.mp4"
       ],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",

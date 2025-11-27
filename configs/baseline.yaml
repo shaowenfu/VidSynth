@@ -3,14 +3,14 @@ segment:
   fps_keyframe: 1.0
   cosine_threshold: 0.3
   histogram_threshold: 0.45
-  min_clip_seconds: 2.0
+  min_clip_seconds: 1.0
   max_clip_seconds: 6.0
   merge_short_segments: true
   keep_last_short_segment: true
   split_long_segments: true
 
 theme_match:
-  score_threshold: 0.2
+  score_threshold: 0.09
   negative_weight: 0.8
 
 export:

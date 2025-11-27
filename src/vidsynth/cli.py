@@ -218,8 +218,24 @@ def export_edl_cmd(
     exporter = Exporter(cfg)
     items = exporter.load_edl(edl)
     output.parent.mkdir(parents=True, exist_ok=True)
-    exporter.export(items, source_video=source_video, output_path=output)
-    typer.echo(f"导出完成：{output}")
+    
+    # 检查 EDL 中的 video_id 是否与源视频匹配（提供警告）
+    unique_video_ids = {item.video_id for item in items}
+    if len(unique_video_ids) > 1:
+        typer.echo(f"警告: EDL 包含多个视频ID: {unique_video_ids}")
+    
+    # 如果 EDL 中的 video_id 与默认源视频不匹配，提供信息
+    default_video_name = source_video.stem
+    for video_id in unique_video_ids:
+        if video_id != default_video_name and video_id != "test_video2":
+            typer.echo(f"信息: EDL 视频ID '{video_id}' 与源视频 '{default_video_name}' 可能不匹配")
+    
+    try:
+        exporter.export(items, source_video=source_video, output_path=output)
+        typer.echo(f"导出完成：{output}")
+    except Exception as e:
+        typer.echo(f"导出失败: {e}")
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -37,9 +37,9 @@ def _generate_with_deepseek(theme: str) -> Tuple[List[str], List[str]]:
         return _fallback_prototypes(theme)
 
     prompt = (
-        "你是视频素材策划助手。请针对主题 "
-        f"{theme!r} 给出 5 个简洁的英文正向提示和 4 个对照提示，"
-        "仅输出 JSON，格式：{" "\"positives\":[...],\"negatives\":[...]" "}."
+        "你是视频素材筛选助手。请针对主题 "
+        f"{theme!r} 给出 5 个简洁的英文正向提示和 4 个对照提示，这些提示会用来与视频素材进行匹配。对照提示是指与正向提示相反的提示。"
+        "避免视频素材中包含与主题不相关的内容。仅输出 JSON，格式：{" "\"positives\":[...],\"negatives\":[...]" "}."
     )
     payload = {
         "model": DEEPSEEK_MODEL,
@@ -47,8 +47,8 @@ def _generate_with_deepseek(theme: str) -> Tuple[List[str], List[str]]:
             {"role": "system", "content": "You generate short English prompts for video retrieval."},
             {"role": "user", "content": prompt},
         ],
-        "temperature": 0.3,
-        "max_tokens": 300,
+        "temperature": 0.7,
+        "max_tokens": 3000,
     }
 
     try:

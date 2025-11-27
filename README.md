@@ -29,12 +29,12 @@ pre-commit install
 ## 使用流程
 1. **Step1: 片段切分**
    ```bash
-   vidsynth segment-video assets/raw/beach.mp4 \
-     --output out/beach_clips.json \
+   vidsynth segment-video assets/raw/Summer_vacation.mp4 \
+     --output out/Summer_vacation_clips.json \
      --config configs/baseline.yaml
    ```
    - 输入：单个视频路径 + 配置。
-   - 输出：`out/beach_clips.json`，包含 `Clip` 对象数组（`video_id`、`t_start/t_end`、`vis_emb_avg`、`emb_model` 等）。
+   - 输出：`out/Summer_vacation_clips.json`，包含 `Clip` 对象数组（`video_id`、`t_start/t_end`、`vis_emb_avg`、`emb_model` 等）。
    - 日志：打印镜头切分统计、丢弃片段数量。
 2. **Step2: 主题匹配**
    ```bash
