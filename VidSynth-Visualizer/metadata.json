@@ -1,0 +1,5 @@
+{
+  "name": "VidSynth Visualizer",
+  "description": "A high-density multi-video processing pipeline featuring segmentation labs, semantic analysis, and cluster sandboxes.",
+  "requestFramePermissions": []
+}
