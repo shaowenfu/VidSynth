@@ -3,7 +3,7 @@
 from .clipper import build_clips_from_samples, segment_video
 from .embedding import EmbeddingBackend, MeanColorEmbedding, create_embedder
 from .labeling import LabelBackend, LabelResult
-from .loader import FrameSample, iter_keyframes
+from .loader import FrameSample, estimate_keyframe_count, iter_keyframes
 from .types import EmbeddedSample
 
 __all__ = [
@@ -17,4 +17,5 @@ __all__ = [
     "LabelBackend",
     "LabelResult",
     "iter_keyframes",
+    "estimate_keyframe_count",
 ]

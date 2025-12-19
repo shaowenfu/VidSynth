@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, List
+import json
 import shutil
 
 import cv2
@@ -77,9 +78,21 @@ def _asset_payload(video_path: Path) -> Dict[str, Any]:
     video_id = video_path.stem
     gt_path = GT_DIR / f"{video_id}.json"
     clips_path = SEGMENTATION_DIR / video_id / "clips.json"
+    status_path = SEGMENTATION_DIR / video_id / "status.json"
 
     thumb_path = _ensure_thumbnail(video_path, video_id)
     duration = _probe_duration_seconds(video_path)
+    status_payload: Dict[str, Any] = {}
+    if status_path.exists():
+        try:
+            status_payload = json.loads(status_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            status_payload = {}
+
+    raw_status = status_payload.get("status")
+    status = raw_status or ("ready" if clips_path.exists() else "idle")
+    if status == "done":
+        status = "ready"
 
     payload = {
         "id": video_id,
@@ -91,7 +104,8 @@ def _asset_payload(video_path: Path) -> Dict[str, Any]:
         "thumb_url": f"/static/thumbnails/{thumb_path.name}" if thumb_path else None,
         "gt_url": f"/static/gt/{video_id}.json" if gt_path.exists() else None,
         "clips_url": f"/static/segmentation/{video_id}/clips.json" if clips_path.exists() else None,
-        "status": "ready" if clips_path.exists() else "idle",
+        "status": status,
+        "progress": status_payload.get("progress"),
     }
     return payload
 

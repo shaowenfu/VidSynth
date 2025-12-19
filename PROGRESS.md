@@ -1,6 +1,6 @@
 # VidSynth 项目搭建进度记录
 
-> 对照 `develop_docs/MVP_framework.md` 的 Step1–Step4 目标，汇总当前实现与待办，帮助新贡献者快速进入正确阶段。
+> 对照 `MVP_framework.md` 的 Step1–Step4 目标与 `SYSTEM_DESIGN.md` 的 shared filesystem（共享文件系统）设计，汇总当前实现与待办，帮助新贡献者快速进入正确阶段。
 > 开发遵循奥卡姆剃刀原理，保持代码简洁、功能独立。
 
 ## 阶段进度一览
@@ -11,10 +11,12 @@
 | Step3：片段筛选/合并 | 主题分数阈值 + 连续片段聚合 | ✅ 已完成：`Sequencer` 采用上/下阈值迟滞，按相邻 clip 合并生成 EDL；提供 CLI `sequence-clips` | `src/vidsynth/sequence/*`、`vidsynth sequence-clips` | 评估不同阈值对 EDL 连贯性的影响，预留多源合并策略 |
 | Step4：拼接导出 | 视觉/音频过渡 + MP4/EDL 输出 | ✅ 已完成：`Exporter` 读取 EDL，使用 `ffmpeg-python` 裁剪并拼接，音频淡入淡出；提供 CLI `export-edl` | `src/vidsynth/export/*`、`vidsynth export-edl` | 扩展多源支持与视频交叉淡入，完善导出统计与失败重试 |
 | 文档与工具 | 统一配置、CLI、贡献指南 | ✅ `README.md`、`docs/CONFIG_CLI.md`、`AGENTS.md`、本文件 | `docs/*`, `AGENTS.md`, `.editorconfig` | 持续同步配置变更，补充示例数据说明 |
+| Phase1：基础设施与资源层 | workspace（工作区）+ static mount（静态挂载）+ assets API（资源接口） | ✅ 已完成：创建 workspace 目录结构、更新 .gitignore，新增 FastAPI（Web 框架）server（服务端）并提供 `/api/assets` 与 `/api/import/videos`，前端 ProjectConfigModal/App 对接 API（接口） | `workspace/*`、`src/vidsynth/server/*`、`VidSynth-Visualizer/App.tsx`、`VidSynth-Visualizer/components/ProjectConfigModal.tsx` | 补齐 Stage1–4 的 API（接口）与 SSE（服务端推送） |
 
 ## 关键产物与入口
 - **配置**：`configs/baseline.yaml`（字段参见 `src/vidsynth/core/config.py` 与 CLI `--help`），可通过环境变量或 CLI 覆盖 `embedding backend`/`device` 等。
 - **核心库**：`src/vidsynth/core`（数据模型、配置、日志）；`src/vidsynth/segment`（Step1 实现，含 OpenCLIP 封装）；`src/vidsynth/theme_match`（Step2）；`src/vidsynth/sequence`（Step3）；`src/vidsynth/export`（Step4）。
+- **服务端**：`src/vidsynth/server`（FastAPI（Web 框架）应用、assets API（资源接口）、static mount（静态挂载））。
 - **命令行**：
   - Step1：`vidsynth segment-video <video> -o <clips.json>`
   - Step2：`vidsynth match-theme output/clips.json "theme" -o output/theme_scores.json`
@@ -22,13 +24,13 @@
   - Step4：`vidsynth export-edl output/edl.json <source_video> -o output/output_demo.mp4`
 - **验证指南**：`docs/STEP1_VALIDATION.md`、`docs/STEP2_VALIDATION.md`。
 - **测试**：`pytest` 覆盖 core + segment + CLI，确保每次提交前运行。
-- **数据放置**：大文件存 `assets/`（或 `VIDSYNTH_STORAGE_ROOT`），测试样本放 `tests/data/`。
+- **数据放置**：共享视频放 `workspace/videos`（前后端共用），大文件仍可存 `assets/`（或 `VIDSYNTH_STORAGE_ROOT`），测试样本放 `tests/data/`。
 
 ## 待办优先级（建议）
-1. **Step3 策略**：在 `theme_score` 基础上设计筛选/聚合算法及 CLI 接口。
-2. **标签/描述扩展**：基于 `LabelBackend` 接口，为 Clip 生成描述，方便后续筛选与 UI。
-3. **批处理脚本**：在 `scripts/` 中加入批量 `segment-video` 或评估脚本，记录运行日志。
-4. **导出阶段设计**: 制定 `sequencer`/`export` API，明确输入 JSON 契约，避免后期返工。
+1. **Stage1 前后端接入**：新增 `/api/segment` 与 SSE（服务端推送），让 Step1Segmentation（前端组件）展示真实切分结果。
+2. **Stage2 前后端接入**：新增 `/api/theme/expand`（Deepseek（大模型服务）后端调用）与 `/api/theme/analyze`，前端热力图（heatmap）读取 `scores.json`。
+3. **Stage3/4 前后端接入**：新增 `/api/sequence/run` 与 `/api/sequence/{theme}/edl`，完成 `final_cut.mp4` 的播放与下载。
+4. **多源导出扩展**：在 EDL（剪辑列表）中补齐路径字段，Exporter（导出器）支持多源合成。
 5. **文档联动**：每次配置/接口变更，同时更新 `README.md`、`AGENTS.md`、`docs/CONFIG_CLI.md` 与本文件，以保持新人上手信息一致。
 
-> 若有新增阶段或流程，请在 `My_docs/MVP_framework.md` 中先更新北极星目标，再回填此进度文件。*** End Patch
+> 若有新增阶段或流程，请在 `My_docs/MVP_framework.md` 中先更新北极星目标，再回填此进度文件。

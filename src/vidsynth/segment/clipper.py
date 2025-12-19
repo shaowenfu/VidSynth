@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Sequence
+from typing import Callable, List, Sequence
 
 import numpy as np
 
@@ -13,7 +13,7 @@ from vidsynth.core import Clip, PipelineConfig
 from vidsynth.core.config import SegmentConfig
 
 from .embedding import DEFAULT_EMBEDDER, EmbeddingBackend, create_embedder
-from .loader import iter_keyframes
+from .loader import estimate_keyframe_count, iter_keyframes
 from .shot_detector import detect_shots
 from .types import EmbeddedSample
 
@@ -33,6 +33,7 @@ def segment_video(
     config: PipelineConfig,
     *,
     embedder: EmbeddingBackend | None = None,
+    progress_callback: Callable[[float], None] | None = None,
 ) -> SegmentResult:
     """主入口：读取视频 -> 采样 -> embedding -> 镜头切分 -> Clip 列表。"""
 
@@ -40,9 +41,23 @@ def segment_video(
     embedder = embedder or create_embedder(config.embedding)
 
     samples: List[EmbeddedSample] = []
+    total_samples = 0
+    step = 0
+    if progress_callback is not None:
+        try:
+            total_samples, _ = estimate_keyframe_count(video_path, seg_cfg.fps_keyframe)
+        except Exception:
+            total_samples = 0
+        step = max(total_samples // 100, 1) if total_samples else 0
+
+    processed = 0
     for sample in iter_keyframes(video_path, seg_cfg.fps_keyframe):
         embedding = embedder.embed_frame(sample.frame)
         samples.append(EmbeddedSample(sample=sample, embedding=embedding))
+        if progress_callback is not None and total_samples > 0:
+            processed += 1
+            if processed % step == 0 or processed == total_samples:
+                progress_callback(min(processed / total_samples, 1.0))
 
     if not samples:
         return SegmentResult(video_id=video_id, clips=[], discarded_segments=0)
@@ -56,6 +71,8 @@ def segment_video(
         emb_model_name=embedder.emb_model_name,
     )
     discarded = max(0, len(boundaries) - len(clips))
+    if progress_callback is not None:
+        progress_callback(1.0)
     return SegmentResult(video_id=video_id, clips=clips, discarded_segments=discarded)
 
 
