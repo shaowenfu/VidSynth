@@ -173,6 +173,10 @@ cython_debug/
 assets/
 !assets/.gitkeep
 
+# 工作区目录：忽略产物但保留占位符
+workspace/**
+!workspace/**/.keep
+
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
@@ -211,3 +215,7 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 .trae
+
+# Workspace (Unified File System)
+workspace/*
+!workspace/**/.gitkeep
