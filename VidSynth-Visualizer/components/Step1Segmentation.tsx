@@ -1,22 +1,32 @@
 
-import React, { useCallback, useEffect, useState } from 'react';
-import { VideoResource, Segment } from '../types';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { VideoResource, Segment, TaskStatus } from '../types';
 import { Play, Pause, Scissors, Code, ChevronDown, MonitorPlay, Activity, FileCode, BarChart3, PieChart, TrendingUp } from 'lucide-react';
 
 interface Step1Props {
   video: VideoResource;
   allVideos: VideoResource[];
   onSelectVideo: (id: string) => void;
+  seekRequest?: { videoId: string; time: number } | null;
+  onSeekHandled?: () => void;
 }
 
-const Step1Segmentation: React.FC<Step1Props> = ({ video, allVideos, onSelectVideo }) => {
+const Step1Segmentation: React.FC<Step1Props> = ({
+  video,
+  allVideos,
+  onSelectVideo,
+  seekRequest,
+  onSeekHandled,
+}) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [hoverInfo, setHoverInfo] = useState<{ segment: Segment, x: number, y: number } | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const apiBase = import.meta.env.VITE_API_BASE || '';
   
   const [predictedSegments, setPredictedSegments] = useState<Segment[]>([]);
   const [progressByVideo, setProgressByVideo] = useState<Record<string, number>>({});
-  const [statusByVideo, setStatusByVideo] = useState<Record<string, 'idle' | 'pending' | 'processing' | 'done' | 'error'>>({});
+  const [statusByVideo, setStatusByVideo] = useState<Record<string, TaskStatus>>({});
   const [taskError, setTaskError] = useState<string | null>(null);
 
   const resolveStatus = (target: VideoResource) => {
@@ -24,10 +34,10 @@ const Step1Segmentation: React.FC<Step1Props> = ({ video, allVideos, onSelectVid
     if (stored) {
       return stored;
     }
-    if (target.status === 'processing' || target.status === 'pending') {
-      return 'processing';
+    if (target.status === 'running' || target.status === 'queued') {
+      return 'running';
     }
-    if (target.status === 'ready' || target.segmented) {
+    if (target.status === 'done' || target.status === 'cached' || target.segmented) {
       return 'done';
     }
     if (target.status === 'error') {
@@ -36,10 +46,23 @@ const Step1Segmentation: React.FC<Step1Props> = ({ video, allVideos, onSelectVid
     return 'idle';
   };
 
+  const resolveApiPath = (path: string) => (apiBase ? `${apiBase}${path}` : path);
+
+  const resolveStaticPath = (path?: string | null) => {
+    if (!path) return undefined;
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      return path;
+    }
+    if (path.startsWith('/')) {
+      return apiBase ? `${apiBase}${path}` : path;
+    }
+    return apiBase ? `${apiBase}/static/${path}` : `/static/${path}`;
+  };
+
   const fetchSegments = useCallback(async (videoId: string, clipsUrl?: string | null) => {
-    const url = clipsUrl || `/static/segmentation/${videoId}/clips.json`;
+    const url = resolveStaticPath(clipsUrl || `/static/segmentation/${videoId}/clips.json`);
     try {
-      const response = await fetch(url);
+      const response = await fetch(url || '');
       if (!response.ok) {
         return;
       }
@@ -69,60 +92,71 @@ const Step1Segmentation: React.FC<Step1Props> = ({ video, allVideos, onSelectVid
   }, [video.id, video.segmented, video.clipsUrl, fetchSegments]);
 
   useEffect(() => {
-    const source = new EventSource('/api/events');
+    const element = videoRef.current;
+    if (!element) {
+      return;
+    }
+    if (isPlaying) {
+      const playPromise = element.play();
+      if (playPromise) {
+        playPromise.catch(() => setIsPlaying(false));
+      }
+    } else {
+      element.pause();
+    }
+  }, [isPlaying, video.url]);
+
+  useEffect(() => {
+    setIsPlaying(false);
+    setCurrentTime(0);
+    const element = videoRef.current;
+    if (element) {
+      element.currentTime = 0;
+      element.load();
+    }
+  }, [video.id, video.url]);
+
+  useEffect(() => {
+    const element = videoRef.current;
+    if (!seekRequest || !element) {
+      return;
+    }
+    if (seekRequest.videoId !== video.id) {
+      return;
+    }
+    element.currentTime = Math.max(0, seekRequest.time);
+    setCurrentTime(element.currentTime);
+    setIsPlaying(true);
+    onSeekHandled?.();
+  }, [seekRequest, video.id, onSeekHandled]);
+
+  useEffect(() => {
+    const source = new EventSource(resolveApiPath('/api/events'));
     const handleMessage = (event: MessageEvent) => {
       if (!event.data) return;
       try {
         const message = JSON.parse(event.data);
-        const { type, payload } = message || {};
-        if (type === 'snapshot' && payload?.statuses) {
-          setStatusByVideo((prev) => {
-            const next = { ...prev };
-            Object.entries(payload.statuses).forEach(([videoId, status]) => {
-              if (status && typeof status === 'object') {
-                const state = (status as any).status as 'idle' | 'pending' | 'processing' | 'done' | 'error';
-                if (state) {
-                  next[videoId] = state;
-                }
-              }
-            });
-            return next;
-          });
-          setProgressByVideo((prev) => {
-            const next = { ...prev };
-            Object.entries(payload.statuses).forEach(([videoId, status]) => {
-              const value = (status as any)?.progress;
-              if (typeof value === 'number') {
-                next[videoId] = value;
-              }
-            });
-            return next;
-          });
+        if (message?.stage !== 'segment') {
           return;
         }
-        if (type === 'status_update' && payload?.video_id) {
-          const status = payload.status as 'idle' | 'pending' | 'processing' | 'done' | 'error';
-          if (status) {
-            setStatusByVideo((prev) => ({ ...prev, [payload.video_id]: status }));
-          }
-          if (typeof payload.progress === 'number') {
-            setProgressByVideo((prev) => ({ ...prev, [payload.video_id]: payload.progress }));
-          }
+        const videoId = message.video_id as string | undefined;
+        if (!videoId) {
           return;
         }
-        if (type === 'task_complete' && payload?.video_id) {
-          setStatusByVideo((prev) => ({ ...prev, [payload.video_id]: 'done' }));
-          setProgressByVideo((prev) => ({ ...prev, [payload.video_id]: 100 }));
-          if (payload.video_id === video.id) {
-            fetchSegments(payload.video_id, payload.clips_url);
-          }
-          return;
+        const status = message.status as TaskStatus | undefined;
+        if (status) {
+          setStatusByVideo((prev) => ({ ...prev, [videoId]: status }));
         }
-        if (type === 'error' && payload?.video_id) {
-          setStatusByVideo((prev) => ({ ...prev, [payload.video_id]: 'error' }));
-          if (payload.video_id === video.id) {
-            setTaskError(payload.message || 'Task failed');
-          }
+        if (typeof message.progress === 'number') {
+          const percent = Math.round(message.progress * 100);
+          setProgressByVideo((prev) => ({ ...prev, [videoId]: percent }));
+        }
+        if ((status === 'done' || status === 'cached') && videoId === video.id) {
+          const resultUrl = resolveStaticPath(message.result_path);
+          fetchSegments(videoId, resultUrl);
+        }
+        if (status === 'error' && videoId === video.id) {
+          setTaskError(message.message || 'Task failed');
         }
       } catch (error) {
         return;
@@ -137,13 +171,13 @@ const Step1Segmentation: React.FC<Step1Props> = ({ video, allVideos, onSelectVid
 
   const handleExecute = async () => {
     const currentStatus = resolveStatus(video);
-    if (currentStatus === 'processing' || currentStatus === 'pending') return;
+    if (currentStatus === 'running' || currentStatus === 'queued') return;
     setTaskError(null);
-    setStatusByVideo((prev) => ({ ...prev, [video.id]: 'processing' }));
+    setStatusByVideo((prev) => ({ ...prev, [video.id]: 'queued' }));
     setProgressByVideo((prev) => ({ ...prev, [video.id]: 0 }));
-    const force = currentStatus === 'done';
+    const force = currentStatus === 'done' || currentStatus === 'cached';
     try {
-      const response = await fetch('/api/segment', {
+      const response = await fetch(resolveApiPath('/api/segment'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ video_ids: [video.id], force }),
@@ -175,9 +209,10 @@ const Step1Segmentation: React.FC<Step1Props> = ({ video, allVideos, onSelectVid
 
   const getClipColor = (index: number) => PALETTE[index % PALETTE.length];
   const currentStatus = resolveStatus(video);
-  const currentProgress = progressByVideo[video.id] ?? (currentStatus === 'done' ? 100 : 0);
-  const isProcessing = currentStatus === 'processing' || currentStatus === 'pending';
-  const isDone = currentStatus === 'done';
+  const seedProgress = typeof video.progress === 'number' ? Math.round(video.progress * 100) : undefined;
+  const currentProgress = progressByVideo[video.id] ?? seedProgress ?? (currentStatus === 'done' ? 100 : 0);
+  const isProcessing = currentStatus === 'running' || currentStatus === 'queued';
+  const isDone = currentStatus === 'done' || currentStatus === 'cached';
   const hasPredicted = predictedSegments.length > 0;
   const hasError = currentStatus === 'error';
 
@@ -249,10 +284,17 @@ const Step1Segmentation: React.FC<Step1Props> = ({ video, allVideos, onSelectVid
             {/* 1.1 Video Player - Flex-1 to take available space */}
             <div className="flex-1 bg-black rounded-lg relative overflow-hidden border border-slate-800 shadow-2xl group w-full min-h-0">
                 <video 
+                    ref={videoRef}
                     className="w-full h-full object-contain"
-                    src={video.url} 
+                    src={video.url}
                     loop 
                     muted
+                    onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+                    onLoadedMetadata={(event) => {
+                      const element = event.currentTarget;
+                      setCurrentTime(element.currentTime || 0);
+                    }}
+                    onEnded={() => setIsPlaying(false)}
                 />
                 <div className="absolute top-4 right-4 bg-black/60 backdrop-blur rounded px-2 py-1 text-[10px] text-slate-400 border border-white/10">
                    {video.name}

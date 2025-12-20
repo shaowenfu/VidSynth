@@ -50,7 +50,7 @@ export const MOCK_VIDEOS: VideoResource[] = Array.from({ length: 7 }).map((_, i)
     thumbnail: `https://picsum.photos/300/170?random=${i + 200}`,
     duration: duration,
     hasGT: true, 
-    status: i === 0 ? 'ready' : 'idle',
+    status: i === 0 ? 'done' : 'idle',
     groundTruth: {
       segments: generateSegments(`gt_${id}`, 6 + Math.floor(Math.random() * 3), duration)
     },

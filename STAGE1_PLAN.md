@@ -6,7 +6,7 @@
 
 #### 0. 文件系统与数据流扩展
 
-*   **输出目录**: 优化为 `workspace/segmentation/{video_id}/` 目录结构。
+*   **输出目录**: 使用 `workspace/segmentation/{video_id}/` 目录结构。
     *   `workspace/segmentation/{video_id}/clips.json`: 存放切分结果。
     *   此结构便于多项目隔离和重跑产物管理。
 *   **数据流向**: 
@@ -26,23 +26,25 @@ workspace/
 ├── videos/
 ├── gt/
 ├── thumbnails/
-└── clips/                  # [新增] 存放切分结果
-    ├── video_A.json        # 对应 video_A.mp4 的切分数据
-    └── video_B.json
+└── segmentation/           # [新增] 存放切分结果
+    ├── video_A/
+    │   └── clips.json       # 对应 video_A.mp4 的切分数据
+    └── video_B/
+        └── clips.json
 ```
 
 ### B. API 接口扩展
 
 #### 1. 资源查询增强 (`GET /api/assets`)
 在原有基础上增加切分状态字段。
-*   **逻辑变更**: 扫描时检查 `workspace/clips/{video_id}.json` 是否存在。
+    *   **逻辑变更**: 扫描时检查 `workspace/segmentation/{video_id}/clips.json` 是否存在。
 *   **新增响应字段**:
     ```json
     {
       "id": "video_A",
       // ... 原有字段
       "segmented": true,                               // [新增] bool, 标记是否已存在 clips.json
-      "clips_url": "/static/clips/video_A.json",       // [新增] 结果文件的静态访问路径
+      "clips_url": "/static/segmentation/video_A/clips.json",       // [新增] 结果文件的静态访问路径
       "duration": 124.5                                // [关键] 若未缓存，需用 ffmpeg probe 获取准确时长
     }
     ```
@@ -52,19 +54,26 @@ workspace/
     *   `video_ids`: 待处理视频 ID 列表。
     *   `force`: 若为 true，覆盖已存在的 `workspace/segmentation/{video_id}/clips.json`。
 *   **逻辑 (Background Task)**:
-    1.  **状态标记**: 立即将内存中的任务状态标记为 `processing`。
+    1.  **状态标记**: 立即将任务状态标记为 `queued` -> `running`。
     2.  **异步执行**: 启动后台线程/进程。
-    3.  **串行处理**: 遍历列表，明确采用串行处理策略，逐个处理视频以避免资源过载。对每个视频调用 `vidsynth.segment.pipeline`。
+    3.  **串行处理**: 遍历列表，明确采用串行处理策略，逐个处理视频以避免资源过载。对每个视频调用 `vidsynth.segment.segment_video`。
     4.  **结果持久化**: 将生成的片段列表保存为 `workspace/segmentation/{video_id}/clips.json`。
-    5.  **状态广播**: 每个视频处理完，通过 SSE 推送 `done` 事件。
+    5.  **状态广播**: 每个视频处理完，通过 SSE 推送 `done` 事件（携带 `result_path`）。
     
 #### 3. 实时状态流 (`GET /api/events`)
 *   **协议**: Server-Sent Events (SSE).
 *   **职责**: 解决 HTTP 请求无法实时获取后台任务进度的问题。
-*   **事件类型**:
-    *   `status_update`: `{ "video_id": "...", "status": "processing", "progress": 45 }`
-    *   `task_complete`: `{ "video_id": "...", "status": "done", "clips_url": "..." }`
-    *   `error`: `{ "video_id": "...", "status": "error", "msg": "FFmpeg failed" }`
+*   **事件结构**（与 `UNIFIED_SYSTEM_DESIGN.md` 一致）:
+    ```json
+    {
+      "stage": "segment",
+      "video_id": "video_A",
+      "status": "queued|running|cached|done|error",
+      "progress": 0.0,
+      "message": "human readable",
+      "result_path": "segmentation/video_A/clips.json"
+    }
+    ```
 
 ---
 
@@ -78,13 +87,13 @@ workspace/
 
 1.  **UI 改造**:
     *   **Grid Item**: 每个视频卡片增加一个状态角标 (Badge)。
-        *   🟢 `Segmented` (已切分)
-        *   🟡 `Processing` (进行中)
-        *   ⚪ `Pending` (待切分)
+        *   🟢 `Done/Cached` (已切分/已缓存)
+        *   🟡 `Running` (进行中)
+        *   ⚪ `Queued` (待切分)
     *   **多选支持**: 点击卡片不再只是单选高亮，而是支持 `toggle` 多选（或增加 Checkbox）。
     *   **底部操作栏**: 当有视频被选中时，底部显示操作按钮。
-        *   **"Start Segmentation"**: 仅对选中的 `Pending` 视频有效。
-        *   **"Re-segment"**: 对选中的 `Segmented` 视频有效（覆盖）。
+        *   **"Start Segmentation"**: 仅对选中的 `Queued` 视频有效。
+        *   **"Re-segment"**: 对选中的 `Done/Cached` 视频有效（覆盖）。
 
 2.  **交互逻辑**:
     *   **点击 "Start"**: 调用 `POST /api/segment`，传入选中 ID。
@@ -137,13 +146,13 @@ sequenceDiagram
     Backend->>Backend: 开启后台线程处理
 
     Note over Backend, Step1Page: 阶段二：异步处理与通知
-    Backend->>FileSystem: 处理 Video A -> 写入 clips/video_A.json
+        Backend->>FileSystem: 处理 Video A -> 写入 segmentation/video_A/clips.json
     Backend->>Step1Page: SSE: {id: A, status: done}
     Step1Page->>Step1Page: 刷新下拉列表 (Video A 出现)
 
     Note over User, Step1Page: 阶段三：查看结果
     User->>Step1Page: 选择 Video A
-    Step1Page->>Backend: GET /static/clips/video_A.json
+    Step1Page->>Backend: GET /static/segmentation/video_A/clips.json
     Backend-->>Step1Page: 返回 JSON 内容
     Step1Page->>Step1Page: 渲染 PRED 轨道
 ```

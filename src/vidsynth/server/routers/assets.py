@@ -90,9 +90,7 @@ def _asset_payload(video_path: Path) -> Dict[str, Any]:
             status_payload = {}
 
     raw_status = status_payload.get("status")
-    status = raw_status or ("ready" if clips_path.exists() else "idle")
-    if status == "done":
-        status = "ready"
+    status = raw_status or ("done" if clips_path.exists() else "idle")
 
     payload = {
         "id": video_id,

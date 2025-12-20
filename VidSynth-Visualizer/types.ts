@@ -13,6 +13,8 @@ export interface GroundTruth {
   segments: Segment[];
 }
 
+export type TaskStatus = 'idle' | 'queued' | 'running' | 'cached' | 'done' | 'error';
+
 export interface VideoResource {
   id: string;
   name: string;
@@ -20,7 +22,7 @@ export interface VideoResource {
   thumbnail: string;
   duration: number; // seconds
   hasGT: boolean;
-  status: 'idle' | 'pending' | 'processing' | 'ready' | 'error';
+  status: TaskStatus;
   groundTruth?: GroundTruth;
   predictedSegments: Segment[];
   segmented?: boolean;
@@ -69,6 +71,6 @@ export interface AssetRecord {
   thumb_url?: string | null;
   gt_url?: string | null;
   clips_url?: string | null;
-  status?: 'idle' | 'pending' | 'processing' | 'ready' | 'error';
+  status?: TaskStatus;
   progress?: number | null;
 }

@@ -16,6 +16,7 @@ const App: React.FC = () => {
   const [isProjectConfigOpen, setIsProjectConfigOpen] = useState(false);
   const [isLoadingAssets, setIsLoadingAssets] = useState(true);
   const [assetsError, setAssetsError] = useState<string | null>(null);
+  const [seekRequest, setSeekRequest] = useState<{ videoId: string; time: number } | null>(null);
 
   const apiBase = import.meta.env.VITE_API_BASE || '';
 
@@ -34,7 +35,7 @@ const App: React.FC = () => {
     thumbnail: resolveAssetUrl(asset.thumb_url),
     duration: asset.duration ?? 0,
     hasGT: asset.hasGT,
-    status: asset.status ?? (asset.segmented ? 'ready' : 'idle'),
+    status: asset.status ?? (asset.segmented ? 'done' : 'idle'),
     groundTruth: undefined,
     predictedSegments: [],
     segmented: asset.segmented,
@@ -78,6 +79,11 @@ const App: React.FC = () => {
   const activeVideo = activeVideoId
     ? videos.find((v) => v.id === activeVideoId)
     : undefined;
+
+  const handleRequestSeek = (videoId: string, time: number) => {
+    setActiveVideoId(videoId);
+    setSeekRequest({ videoId, time });
+  };
 
   return (
     <div className="h-screen bg-[#050505] text-slate-200 font-sans p-4 flex items-center justify-center overflow-hidden">
@@ -152,8 +158,10 @@ const App: React.FC = () => {
                           video={activeVideo} 
                           allVideos={videos}
                           onSelectVideo={setActiveVideoId}
+                          seekRequest={seekRequest}
+                          onSeekHandled={() => setSeekRequest(null)}
                         />
-                        <Step2Semantic videos={videos} />
+                        <Step2Semantic videos={videos} onRequestSeek={handleRequestSeek} />
                         <Step3Log logs={[]} />
                         <Step4FinalCut video={activeVideo} />
                       </div>

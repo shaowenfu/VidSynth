@@ -56,22 +56,24 @@
 *   **输入**:
     ```json
     {
-      "theme_name": "skiing",       // 用于文件夹命名
-      "positive_prototypes": [...], // 用户编辑后的列表
-      "negative_prototypes": [...]
+      "theme": "skiing",            // 原始主题文本
+      "positives": [...],           // 用户编辑后的列表
+      "negatives": [...],
+      "video_ids": ["video_A"],     // 可选：限定视频
+      "force": false                // 可选：覆盖已有缓存
     }
     ```
 *   **逻辑 (Background Task)**:
-    1.  **目录准备**: 创建/清理 `workspace/themes/{theme_name}/`。
+    1.  **目录准备**: 创建/清理 `workspace/themes/{theme_slug}/`。
     2.  **数据加载**: 遍历 `workspace/segmentation/` 下所有已切分的 `clips.json`。
     3.  **批量计算**: 加载 `ThemeMatcher` 模型，对每个 clip 的 `vis_emb_avg` 与原型进行余弦相似度计算。
         *   *Optimization*: 尽量使用矩阵运算 (Vectorized Operation) 一次性计算所有 clips。
     4.  **进度推送**: 通过 SSE 推送进度 (例如每处理完一个视频推送一次)。
     5.  **结果保存**: 写入 `scores.json`。
 
-#### 3. 获取分析结果 (`GET /api/theme/{theme_name}/result`)
+#### 3. 获取分析结果 (`GET /api/theme/{theme_slug}/result`)
 *   **职责**: 虽然可以通过静态文件访问，但 API 可以提供更灵活的错误处理（如文件不存在时返回 404）。
-*   **逻辑**: 返回 `workspace/themes/{theme_name}/scores.json` 的内容。
+*   **逻辑**: 返回 `workspace/themes/{theme_slug}/scores.json` 的内容。
 
 ### B. 结果文件结构 (`scores.json`)
 
@@ -106,7 +108,7 @@
     *   每个列表项支持**增删改**。用户可能想手动添加某些特定的视觉元素（如 "red jacket"）。
 *   **Start Analysis 按钮**:
     *   点击后，锁定界面，显示全局进度条。
-    *   监听 SSE `theme_progress` 事件更新进度。
+    *   监听 SSE 事件：`stage=theme_match`，按 `status/progress` 更新进度。
 
 ### B. 可视化区 (Visualization) - 分析完成后显示
 

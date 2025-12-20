@@ -31,6 +31,10 @@ async def events(request: Request) -> StreamingResponse:
     """SSE channel for task progress."""
 
     snapshot = task_manager.snapshot()
-    initial_messages = [{"type": "snapshot", "payload": snapshot}]
+    initial_messages = [
+        task_manager.format_event(status)
+        for status in snapshot.get("statuses", {}).values()
+        if isinstance(status, dict)
+    ]
     generator = stream_events(request, broadcaster, initial_messages=initial_messages)
     return StreamingResponse(generator, media_type="text/event-stream")

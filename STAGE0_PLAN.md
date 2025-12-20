@@ -6,7 +6,7 @@
 
 为了满足 **“固定路径自动加载”** 和 **“文件名匹配”** 的需求，同时兼顾 B/S 架构限制与静态资源托管便利性，我们将统一工作区结构优化如下。此目录应被 `.gitignore` 忽略。
 
-**建议的 `workspace/` 目录结构：**
+**建议的 `workspace/` 目录结构（可通过环境变量 `VIDSYNTH_WORKSPACE_ROOT` 覆盖）：**
 
 ```
 VidSynth/
@@ -20,9 +20,11 @@ VidSynth/
 │   ├── thumbnails/             # [自动生成] 存放视频封面缓存 (.jpg) - 取消隐藏以便静态托管
 │       ├── video_A.jpg
 │       └── video_B.jpg
-│   └── clips/                  # [新增] 存放 Step 1 切分后的结果 (.json)
-│       ├── video_A.json
-│       └── video_B.json
+│   └── segmentation/           # [Stage1] 存放切分结果
+│       ├── video_A/
+│       │   └── clips.json
+│       └── video_B/
+│           └── clips.json
 └── src/...
 ```
 
@@ -43,7 +45,7 @@ VidSynth/
     *   **逻辑**: 
         1.  **扫描**: 遍历 `workspace/videos/`。
         2.  **匹配**: 检查 `gt/{id}.json` 是否存在。
-        3.  **切分状态**: 检查 `clips/{id}.json` 是否存在，若存在则 `segmented=true`。
+        3.  **切分状态**: 检查 `segmentation/{id}/clips.json` 是否存在，若存在则 `segmented=true`。
         4.  **缩略图**: 检查 `thumbnails/{id}.jpg`，不存在则实时生成。
         5.  **时长**: 若缓存中无时长信息，则读取视频元数据填充。
         6.  **构建URL**: 返回可直接访问的静态资源 URL。
@@ -59,8 +61,8 @@ VidSynth/
             "video_url": "/static/videos/video_A.mp4",
             "thumb_url": "/static/thumbnails/video_A.jpg",
             "gt_url": "/static/gt/video_A.json",
-            "clips_url": "/static/clips/video_A.json",       // [新增] 切分结果 URL
-            "status": "ready"
+            "clips_url": "/static/segmentation/video_A/clips.json",       // [新增] 切分结果 URL
+            "status": "done"
           }
         ]
         ```
@@ -70,11 +72,12 @@ VidSynth/
     *   **适用场景**: 标准 B/S 模式上传（Localhost 下速度极快，体验接近复制）。
     *   **逻辑**: 保存文件 -> 生成缩略图 -> 返回更新后的资源列表。
 
-3.  **`POST /api/import/gt/{video_id}` (导入 GT JSON)**
+3.  **`POST /api/gt/upload` (导入 GT JSON)**
+    *   **输入**: `form-data` 携带 `{video_id, file}`。
     *   **职责**: 接收 JSON 文件流，写入 `workspace/gt/{video_id}.json`。
     *   **逻辑**: 强制重命名以匹配视频 ID -> 返回成功状态。
 
-4.  **`POST /api/rescan` (手动刷新)**
+4.  **`POST /api/assets/rescan` (手动刷新)**
     *   **职责**: 重新扫描 `workspace/` 目录。
     *   **适用场景**: 用户手动将文件复制到文件夹中，或者点击 "Sync JSONs" 按钮尝试自动匹配新放入的文件。
 
