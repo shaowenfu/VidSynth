@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Callable, Optional
 
 
 def setup_logging(level: str = "INFO") -> None:
@@ -19,3 +19,32 @@ def get_logger(name: Optional[str] = None) -> logging.Logger:
     """获取模块专属 logger，抽出来便于后续接入 JSON/结构化日志。"""
 
     return logging.getLogger(name or "vidsynth")
+
+
+class SSELogHandler(logging.Handler):
+    """将日志消息转发到 SSE 的 handler（处理器）。"""
+
+    def __init__(self, emit_callback: Callable[[str, logging.LogRecord], None]) -> None:
+        super().__init__()
+        self._emit_callback = emit_callback
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            message = record.getMessage()
+            self._emit_callback(message, record)
+        except Exception:
+            return
+
+
+def attach_sse_handler(
+    logger: logging.Logger,
+    emit_callback: Callable[[str, logging.LogRecord], None],
+    *,
+    level: int = logging.INFO,
+) -> logging.Handler:
+    """挂载 SSE handler，并返回 handler 以便后续移除。"""
+
+    handler = SSELogHandler(emit_callback)
+    handler.setLevel(level)
+    logger.addHandler(handler)
+    return handler

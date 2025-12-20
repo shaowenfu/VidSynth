@@ -9,6 +9,8 @@ from vidsynth.theme_match import ThemeMatcher
 
 from .events import EventBroadcaster
 from .tasks import TaskManager
+from .sequence_tasks import SequenceTaskManager
+from .export_tasks import ExportTaskManager
 from .theme_tasks import ThemeTaskManager
 
 _theme_lock = threading.Lock()
@@ -29,3 +31,5 @@ def get_theme_matcher() -> ThemeMatcher:
 broadcaster = EventBroadcaster()
 task_manager = TaskManager(broadcaster)
 theme_task_manager = ThemeTaskManager(broadcaster, get_theme_matcher)
+sequence_task_manager = SequenceTaskManager(broadcaster)
+export_task_manager = ExportTaskManager(broadcaster)

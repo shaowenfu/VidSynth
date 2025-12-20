@@ -22,6 +22,7 @@ const Step1Segmentation: React.FC<Step1Props> = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [hoverInfo, setHoverInfo] = useState<{ segment: Segment, x: number, y: number } | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [isScrubbing, setIsScrubbing] = useState(false);
   const apiBase = import.meta.env.VITE_API_BASE || '';
   
   const [predictedSegments, setPredictedSegments] = useState<Segment[]>([]);
@@ -215,6 +216,22 @@ const Step1Segmentation: React.FC<Step1Props> = ({
   const isDone = currentStatus === 'done' || currentStatus === 'cached';
   const hasPredicted = predictedSegments.length > 0;
   const hasError = currentStatus === 'error';
+  const safeDuration = video.duration > 0 ? video.duration : 1;
+  const playheadPercent = Math.min(100, Math.max(0, (currentTime / safeDuration) * 100));
+
+  const seekToPointer = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!video.duration) {
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const ratio = (event.clientX - rect.left) / rect.width;
+    const clamped = Math.min(1, Math.max(0, ratio));
+    const target = clamped * video.duration;
+    if (videoRef.current) {
+      videoRef.current.currentTime = target;
+    }
+    setCurrentTime(target);
+  };
 
   return (
     <section className="h-[calc(100vh-8rem)] flex flex-col snap-start scroll-mt-24 px-6 pb-2 box-border">
@@ -322,9 +339,35 @@ const Step1Segmentation: React.FC<Step1Props> = ({
                 </div>
 
                 {/* Simple Tracks Container */}
-                <div className="flex-1 px-3 flex flex-col justify-center gap-3 relative">
+                <div
+                    className="flex-1 px-3 flex flex-col justify-center gap-3 relative cursor-pointer"
+                    onPointerDown={(event) => {
+                      setIsScrubbing(true);
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      seekToPointer(event);
+                    }}
+                    onPointerMove={(event) => {
+                      if (!isScrubbing) return;
+                      seekToPointer(event);
+                    }}
+                    onPointerUp={(event) => {
+                      setIsScrubbing(false);
+                      event.currentTarget.releasePointerCapture(event.pointerId);
+                    }}
+                    onPointerCancel={() => {
+                      setIsScrubbing(false);
+                    }}
+                    onPointerLeave={() => {
+                      if (isScrubbing) {
+                        setIsScrubbing(false);
+                      }
+                    }}
+                  >
                     {/* Playhead Line */}
-                    <div className="absolute top-0 bottom-0 z-30 pointer-events-none border-l-2 border-white/40" style={{ left: '35%' }}></div>
+                    <div
+                      className="absolute top-0 bottom-0 z-30 pointer-events-none border-l-2 border-white/40"
+                      style={{ left: `${playheadPercent}%` }}
+                    ></div>
 
                     {/* Track 1: GT (Ground Truth) */}
                     <div className="h-6 flex items-center gap-3">

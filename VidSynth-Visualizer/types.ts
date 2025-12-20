@@ -47,7 +47,7 @@ export interface ClusterPoint {
 
 export interface LogEntry {
   id: string;
-  type: 'filter' | 'merge' | 'result' | 'info';
+  type: 'filter' | 'merge' | 'result' | 'info' | 'error';
   message: string;
   timestamp: string;
 }
@@ -59,6 +59,17 @@ export interface EdlItem {
   sourceEnd: number;
   targetStart: number;
   targetEnd: number;
+}
+
+export interface EdlEntry {
+  index: number;
+  sourceVideoId: string;
+  tStart: number;
+  tEnd: number;
+  duration: number;
+  reason?: string;
+  timelineStart?: number;
+  timelineEnd?: number;
 }
 
 export interface AssetRecord {

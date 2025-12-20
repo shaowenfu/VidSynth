@@ -11,6 +11,8 @@ from fastapi.staticfiles import StaticFiles
 from .routers.assets import router as assets_router
 from .routers.segment import router as segment_router
 from .routers.theme import router as theme_router
+from .routers.sequence import router as sequence_router
+from .routers.export import router as export_router
 from .state import broadcaster
 from .workspace import WORKSPACE_ROOT, ensure_workspace_layout
 
@@ -32,6 +34,8 @@ def create_app() -> FastAPI:
     app.include_router(assets_router)
     app.include_router(segment_router)
     app.include_router(theme_router)
+    app.include_router(sequence_router)
+    app.include_router(export_router)
     app.mount("/static", StaticFiles(directory=str(WORKSPACE_ROOT)), name="static")
 
     @app.on_event("startup")

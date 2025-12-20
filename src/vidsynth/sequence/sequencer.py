@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Sequence
 
-from vidsynth.core import Clip, ThemeScore
+from vidsynth.core import Clip, ThemeScore, get_logger
 
 
 @dataclass(slots=True)
@@ -57,11 +57,14 @@ class Sequencer:
         threshold_lower: Optional[float] = None,
         min_clip_seconds: Optional[float] = None,
         max_clip_seconds: Optional[float] = None,
+        merge_gap: Optional[float] = None,
     ) -> None:
         self.threshold_upper = threshold_upper
         self.threshold_lower = threshold_lower if threshold_lower is not None else threshold_upper
         self.min_clip_seconds = min_clip_seconds
         self.max_clip_seconds = max_clip_seconds
+        self.merge_gap = merge_gap
+        self.logger = get_logger(__name__)
 
     def sequence(
         self,
@@ -92,13 +95,37 @@ class Sequencer:
             if s_val >= self.threshold_upper:
                 selected.append(clip)
                 last_selected = True
+                self.logger.info(
+                    "FILTER select video_id=%s clip_id=%s score=%.4f reason=upper",
+                    clip.video_id,
+                    clip.clip_id,
+                    s_val,
+                )
             elif last_selected and s_val >= self.threshold_lower:
                 selected.append(clip)
+                self.logger.info(
+                    "FILTER keep video_id=%s clip_id=%s score=%.4f reason=hysteresis",
+                    clip.video_id,
+                    clip.clip_id,
+                    s_val,
+                )
             else:
                 last_selected = False
+                self.logger.info(
+                    "FILTER drop video_id=%s clip_id=%s score=%.4f",
+                    clip.video_id,
+                    clip.clip_id,
+                    s_val,
+                )
 
         # 将连续的（同视频、clip_id 连续）片段合并为 EDL 段
         edl = self._merge_to_edl(selected)
+        self.logger.info(
+            "RESULT selected=%s total=%s edl=%s",
+            len(selected),
+            len(clips),
+            len(edl),
+        )
         return SequenceResult(
             selected_clips=selected,
             edl=edl,
@@ -128,18 +155,46 @@ class Sequencer:
             t_start = cur[0].t_start
             t_end = cur[-1].t_end
             # 最短时长约束：过短段丢弃，避免碎片化
-            if self.min_clip_seconds is not None and t_end - t_start < self.min_clip_seconds:
+            duration = t_end - t_start
+            if self.min_clip_seconds is not None and duration < self.min_clip_seconds:
+                self.logger.info(
+                    "FILTER drop_duration video_id=%s start=%.3f end=%.3f duration=%.3f",
+                    video_id,
+                    t_start,
+                    t_end,
+                    duration,
+                )
                 return
             # 最长时长约束：过长段按最大时长截断
-            if self.max_clip_seconds is not None and t_end - t_start > self.max_clip_seconds:
+            if self.max_clip_seconds is not None and duration > self.max_clip_seconds:
                 t_end = t_start + self.max_clip_seconds
+                self.logger.info(
+                    "MERGE clamp video_id=%s start=%.3f end=%.3f max=%.3f",
+                    video_id,
+                    t_start,
+                    t_end,
+                    self.max_clip_seconds,
+                )
             edl.append(EDLItem(video_id=video_id, t_start=t_start, t_end=t_end, reason="theme_sequence"))
+            self.logger.info(
+                "MERGE output video_id=%s start=%.3f end=%.3f",
+                video_id,
+                t_start,
+                t_end,
+            )
 
         prev_vid: Optional[str] = None
         prev_id: Optional[int] = None
+        prev_end: Optional[float] = None
         for clip in clips:
             # 连续性：同视频且 clip_id 递增 1
-            contiguous = prev_vid == clip.video_id and prev_id is not None and clip.clip_id == prev_id + 1
+            contiguous = False
+            if prev_vid == clip.video_id and prev_id is not None:
+                if clip.clip_id == prev_id + 1:
+                    contiguous = True
+                elif self.merge_gap is not None and prev_end is not None:
+                    gap = clip.t_start - prev_end
+                    contiguous = gap <= self.merge_gap
             if group and contiguous:
                 group.append(clip)
             else:
@@ -147,5 +202,6 @@ class Sequencer:
                 group = [clip]
             prev_vid = clip.video_id
             prev_id = clip.clip_id
+            prev_end = clip.t_end
         flush(group)
         return edl

@@ -17,6 +17,9 @@ const App: React.FC = () => {
   const [isLoadingAssets, setIsLoadingAssets] = useState(true);
   const [assetsError, setAssetsError] = useState<string | null>(null);
   const [seekRequest, setSeekRequest] = useState<{ videoId: string; time: number } | null>(null);
+  const [activeTheme, setActiveTheme] = useState<string | null>(null);
+  const [activeThemeSlug, setActiveThemeSlug] = useState<string | null>(null);
+  const [sequenceRefreshKey, setSequenceRefreshKey] = useState(0);
 
   const apiBase = import.meta.env.VITE_API_BASE || '';
 
@@ -83,6 +86,15 @@ const App: React.FC = () => {
   const handleRequestSeek = (videoId: string, time: number) => {
     setActiveVideoId(videoId);
     setSeekRequest({ videoId, time });
+  };
+
+  const handleThemeResolved = (theme: string, themeSlug: string | null) => {
+    setActiveTheme(theme);
+    setActiveThemeSlug(themeSlug);
+  };
+
+  const handleSequenceComplete = () => {
+    setSequenceRefreshKey((prev) => prev + 1);
   };
 
   return (
@@ -161,9 +173,24 @@ const App: React.FC = () => {
                           seekRequest={seekRequest}
                           onSeekHandled={() => setSeekRequest(null)}
                         />
-                        <Step2Semantic videos={videos} onRequestSeek={handleRequestSeek} />
-                        <Step3Log logs={[]} />
-                        <Step4FinalCut video={activeVideo} />
+                        <Step2Semantic
+                          videos={videos}
+                          onRequestSeek={handleRequestSeek}
+                          onThemeResolved={handleThemeResolved}
+                        />
+                        <Step3Log
+                          logs={[]}
+                          theme={activeTheme}
+                          themeSlug={activeThemeSlug}
+                          videoId={activeVideo?.id ?? null}
+                          onSequenceComplete={handleSequenceComplete}
+                        />
+                        <Step4FinalCut
+                          video={activeVideo}
+                          theme={activeTheme}
+                          themeSlug={activeThemeSlug}
+                          refreshKey={sequenceRefreshKey}
+                        />
                       </div>
                   </div>
                 ) : (

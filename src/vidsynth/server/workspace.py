@@ -21,6 +21,8 @@ GT_DIR = WORKSPACE_ROOT / "gt"
 THUMBNAILS_DIR = WORKSPACE_ROOT / "thumbnails"
 SEGMENTATION_DIR = WORKSPACE_ROOT / "segmentation"
 THEMES_DIR = WORKSPACE_ROOT / "themes"
+EDL_DIR = WORKSPACE_ROOT / "edl"
+EXPORTS_DIR = WORKSPACE_ROOT / "exports"
 
 
 def ensure_workspace_layout() -> None:
@@ -33,5 +35,7 @@ def ensure_workspace_layout() -> None:
         THUMBNAILS_DIR,
         SEGMENTATION_DIR,
         THEMES_DIR,
+        EDL_DIR,
+        EXPORTS_DIR,
     ):
         path.mkdir(parents=True, exist_ok=True)

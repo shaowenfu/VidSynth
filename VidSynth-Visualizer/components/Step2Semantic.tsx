@@ -6,6 +6,7 @@ import { Flame, PlayCircle, Activity, Play, CheckCircle2, ScanSearch, Plus, X } 
 interface Step2Props {
   videos: VideoResource[];
   onRequestSeek: (videoId: string, time: number) => void;
+  onThemeResolved?: (theme: string, themeSlug: string | null) => void;
 }
 
 interface FlattenedSegment extends Segment {
@@ -21,6 +22,7 @@ interface ThemeScoreEntry {
   s_neg?: number;
   t_start: number;
   t_end: number;
+  thumb_url?: string | null;
 }
 
 interface ThemeScoresPayload {
@@ -35,7 +37,7 @@ interface ThemeScoresPayload {
   scores: Record<string, ThemeScoreEntry[]>;
 }
 
-const Step2Semantic: React.FC<Step2Props> = ({ videos, onRequestSeek }) => {
+const Step2Semantic: React.FC<Step2Props> = ({ videos, onRequestSeek, onThemeResolved }) => {
   const [themeText, setThemeText] = useState('');
   const [positives, setPositives] = useState<string[]>([]);
   const [negatives, setNegatives] = useState<string[]>([]);
@@ -56,36 +58,6 @@ const Step2Semantic: React.FC<Step2Props> = ({ videos, onRequestSeek }) => {
   const itemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const apiBase = import.meta.env.VITE_API_BASE || '';
 
-  // Flatten all segments from all videos into a single timeline
-  const allSegments = useMemo(() => {
-    let index = 0;
-    const flat: FlattenedSegment[] = [];
-    if (!scoresPayload) {
-      return flat;
-    }
-    const scoreMap = scoresPayload.scores || {};
-    videos.forEach((video) => {
-      const entries = scoreMap[video.id] || [];
-      entries.forEach((entry) => {
-        flat.push({
-          id: `score_${video.id}_${entry.clip_id}`,
-          start: entry.t_start,
-          end: entry.t_end,
-          score: entry.score,
-          posScore: entry.s_pos,
-          negScore: entry.s_neg,
-          label: `Clip ${entry.clip_id}`,
-          videoId: video.id,
-          videoName: video.name,
-          globalIndex: index++,
-        });
-      });
-    });
-    return flat;
-  }, [scoresPayload, videos]);
-
-  const isAnalyzing = analysisStatus === 'queued' || analysisStatus === 'running';
-
   const resolveApiPath = (path: string) => (apiBase ? `${apiBase}${path}` : path);
 
   const resolveResultPath = (path?: string | null) => {
@@ -101,7 +73,39 @@ const Step2Semantic: React.FC<Step2Props> = ({ videos, onRequestSeek }) => {
     return apiBase ? `${apiBase}/static/${path}` : `/static/${path}`;
   };
 
-  const handleStartAnalysis = async () => {
+  // Flatten all segments from all videos into a single timeline
+  const allSegments = useMemo(() => {
+    let index = 0;
+    const flat: FlattenedSegment[] = [];
+    if (!scoresPayload) {
+      return flat;
+    }
+    const scoreMap = scoresPayload.scores || {};
+    videos.forEach((video) => {
+      const entries = scoreMap[video.id] || [];
+      entries.forEach((entry) => {
+        const thumbUrl = resolveResultPath(entry.thumb_url) || video.thumbnail;
+        flat.push({
+          id: `score_${video.id}_${entry.clip_id}`,
+          start: entry.t_start,
+          end: entry.t_end,
+          score: entry.score,
+          posScore: entry.s_pos,
+          negScore: entry.s_neg,
+          label: `Clip ${entry.clip_id}`,
+          thumbnailUrl: thumbUrl,
+          videoId: video.id,
+          videoName: video.name,
+          globalIndex: index++,
+        });
+      });
+    });
+    return flat;
+  }, [scoresPayload, videos, apiBase]);
+
+  const isAnalyzing = analysisStatus === 'queued' || analysisStatus === 'running';
+
+  const handleStartAnalysis = async (force: boolean) => {
     if (isAnalyzing || !themeText.trim() || !isConfirmed) {
       return;
     }
@@ -127,7 +131,7 @@ const Step2Semantic: React.FC<Step2Props> = ({ videos, onRequestSeek }) => {
           positives,
           negatives,
           video_ids: targetVideos.map((video) => video.id),
-          force: false,
+          force,
         }),
       });
       if (!response.ok) {
@@ -280,6 +284,13 @@ const Step2Semantic: React.FC<Step2Props> = ({ videos, onRequestSeek }) => {
   }, [themeText]);
 
   useEffect(() => {
+    if (!analysisTheme) {
+      return;
+    }
+    onThemeResolved?.(analysisTheme, analysisThemeSlug);
+  }, [analysisTheme, analysisThemeSlug, onThemeResolved]);
+
+  useEffect(() => {
     const source = new EventSource(resolveApiPath('/api/events'));
     const handleMessage = (event: MessageEvent) => {
       if (!event.data) {
@@ -391,7 +402,7 @@ const Step2Semantic: React.FC<Step2Props> = ({ videos, onRequestSeek }) => {
                 </button>
             </div>
             <button 
-                onClick={handleStartAnalysis}
+                onClick={() => handleStartAnalysis(false)}
                 disabled={isAnalyzing || !isConfirmed || !themeText.trim()}
                 className={`
                     px-4 py-2 rounded font-bold text-sm flex items-center gap-2 transition-all shadow-lg
@@ -405,6 +416,19 @@ const Step2Semantic: React.FC<Step2Props> = ({ videos, onRequestSeek }) => {
             >
                 {isAnalyzing ? <Activity size={16} className="animate-spin" /> : <Play size={16} fill="currentColor" />}
                 {isAnalyzing ? 'Analyzing...' : 'Start Analysis'}
+            </button>
+            <button
+                onClick={() => handleStartAnalysis(true)}
+                disabled={isAnalyzing || !isConfirmed || !themeText.trim()}
+                className={`
+                    px-3 py-2 rounded font-bold text-xs flex items-center gap-2 transition-all border
+                    ${isAnalyzing || !isConfirmed || !themeText.trim()
+                      ? 'bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed'
+                      : 'bg-rose-600/20 text-rose-300 border-rose-500/40 hover:border-rose-400 hover:text-rose-200'
+                    }
+                `}
+            >
+                Force Re-run
             </button>
         </div>
       </div>
@@ -575,7 +599,7 @@ const Step2Semantic: React.FC<Step2Props> = ({ videos, onRequestSeek }) => {
                         <div className="w-full h-full opacity-60 group-hover:opacity-100 transition-opacity">
                              {/* Use a fixed seed logic for consistent thumbnail per clip id */}
                             <img 
-                                src={`https://picsum.photos/300/200?random=${parseInt(seg.id.replace(/\D/g, '')) + 100}`} 
+                                src={seg.thumbnailUrl || ''}
                                 alt={seg.label} 
                                 className="w-full h-full object-cover" 
                             />

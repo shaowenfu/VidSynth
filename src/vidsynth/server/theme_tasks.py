@@ -13,11 +13,13 @@ import threading
 import time
 from typing import Any, Callable, Deque, Dict, Iterable, List, Optional
 
+import cv2
+
 from vidsynth.core import Clip, ThemeQuery
 from vidsynth.theme_match import ThemeMatcher
 
 from .events import EventBroadcaster
-from .workspace import SEGMENTATION_DIR, THEMES_DIR, ensure_workspace_layout
+from .workspace import SEGMENTATION_DIR, THEMES_DIR, VIDEOS_DIR, ensure_workspace_layout
 
 
 @dataclass(slots=True)
@@ -193,6 +195,7 @@ class ThemeTaskManager:
                         }
                     )
                 entries.sort(key=lambda item: item["t_start"])
+                self._attach_thumbnails(video_id, entries, force=job.force)
                 scores_payload["scores"][video_id] = entries
                 processed += len(clips)
                 progress = processed / total_clips if total_clips else 0.0
@@ -266,6 +269,47 @@ class ThemeTaskManager:
                 except Exception:
                     continue
         return clips
+
+    def _resolve_video_path(self, video_id: str) -> Optional[Path]:
+        if not VIDEOS_DIR.exists():
+            return None
+        for path in VIDEOS_DIR.iterdir():
+            if path.is_file() and path.stem == video_id:
+                return path
+        return None
+
+    def _attach_thumbnails(self, video_id: str, entries: List[Dict[str, Any]], *, force: bool = False) -> None:
+        if not entries:
+            return
+        video_path = self._resolve_video_path(video_id)
+        if not video_path:
+            return
+        thumbs_dir = SEGMENTATION_DIR / video_id / "thumbs"
+        thumbs_dir.mkdir(parents=True, exist_ok=True)
+        capture = cv2.VideoCapture(str(video_path))
+        if not capture.isOpened():
+            return
+        try:
+            for entry in entries:
+                clip_id = entry.get("clip_id")
+                if clip_id is None:
+                    continue
+                thumb_path = thumbs_dir / f"{clip_id}.jpg"
+                thumb_rel = f"segmentation/{video_id}/thumbs/{clip_id}.jpg"
+                if thumb_path.exists():
+                    if not force:
+                        entry["thumb_url"] = thumb_rel
+                        continue
+                    thumb_path.unlink()
+                t_start = float(entry.get("t_start", 0.0))
+                capture.set(cv2.CAP_PROP_POS_MSEC, max(t_start, 0.0) * 1000.0)
+                success, frame = capture.read()
+                if not success:
+                    continue
+                if cv2.imwrite(str(thumb_path), frame):
+                    entry["thumb_url"] = thumb_rel
+        finally:
+            capture.release()
 
     def _status_path(self, theme_slug: str) -> Path:
         return THEMES_DIR / theme_slug / "status.json"
