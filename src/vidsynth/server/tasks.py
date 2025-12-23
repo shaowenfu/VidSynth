@@ -11,7 +11,7 @@ import threading
 import time
 from typing import Any, Deque, Dict, Iterable, List, Optional
 
-from vidsynth.core import Clip, load_config
+from vidsynth.core import Clip, load_config, get_logger
 from vidsynth.segment import segment_video
 
 from .events import EventBroadcaster
@@ -45,6 +45,7 @@ class TaskManager:
         self._active: Optional[str] = None
         self._broadcaster = broadcaster
         self._config = load_config()
+        self._logger = get_logger("vidsynth.segment")
         self._worker = threading.Thread(target=self._worker_loop, daemon=True)
         ensure_workspace_layout()
         self._load_queue_state()
@@ -126,15 +127,23 @@ class TaskManager:
             return
 
         last_progress = -1.0
+        last_logged_percent = -10
+
+        self._logger.info("SEGMENT start video_id=%s", video_id)
 
         def progress_callback(value: float) -> None:
             nonlocal last_progress
+            nonlocal last_logged_percent
             normalized = max(0.0, min(1.0, float(value)))
             if normalized == last_progress:
                 return
             last_progress = normalized
             self._write_status(video_id, status="running", progress=normalized, message="")
             self._publish_status(video_id)
+            percent = int(normalized * 100)
+            if percent - last_logged_percent >= 10 or percent == 100:
+                last_logged_percent = percent
+                self._logger.info("SEGMENT progress video_id=%s percent=%s", video_id, percent)
 
         self._write_status(video_id, status="running", progress=0.0, message="")
         self._publish_status(video_id)
@@ -148,10 +157,12 @@ class TaskManager:
             self._write_clips(video_id, result.clips)
             self._write_status(video_id, status="done", progress=1.0, message="")
             self._publish_status(video_id)
+            self._logger.info("SEGMENT done video_id=%s clips=%s", video_id, len(result.clips))
         except Exception as exc:
             message = str(exc)
             self._write_status(video_id, status="error", progress=0.0, message=message)
             self._publish_status(video_id)
+            self._logger.error("SEGMENT error video_id=%s error=%s", video_id, message)
 
     def _resolve_video_path(self, video_id: str) -> Optional[Path]:
         for path in VIDEOS_DIR.iterdir():
@@ -195,6 +206,24 @@ class TaskManager:
         path = self._clips_path(video_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = [clip.to_dict() for clip in clips]
+        self._atomic_write_json(path, payload)
+        self._write_clips_meta(video_id, clips)
+
+    def _write_clips_meta(self, video_id: str, clips: List[Clip]) -> None:
+        path = self._segmentation_dir(video_id) / "clips_meta.json"
+        payload = [
+            {
+                "video_id": clip.video_id,
+                "clip_id": clip.clip_id,
+                "t_start": clip.t_start,
+                "t_end": clip.t_end,
+                "fps_keyframe": clip.fps_keyframe,
+                "emb_model": clip.emb_model,
+                "created_at": clip.created_at.isoformat(),
+                "version": clip.version,
+            }
+            for clip in clips
+        ]
         self._atomic_write_json(path, payload)
 
     def _persist_queue(self) -> None:

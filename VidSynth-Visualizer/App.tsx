@@ -7,10 +7,15 @@ import ClusterSandbox from './components/ClusterSandbox';
 import ProjectConfigModal from './components/ProjectConfigModal';
 import LogConsoleModal from './components/LogConsoleModal';
 import { AssetRecord, VideoResource, ThemeSummary } from './types';
-import { Zap, LayoutGrid, Box, Settings2, Terminal } from 'lucide-react';
+import { Zap, LayoutGrid, Box, Settings2, Terminal, RefreshCw } from 'lucide-react';
 import { LogProvider, useLogStore } from './context/LogContext';
 
-const AppContent: React.FC = () => {
+interface AppContentProps {
+  backendReady: boolean;
+  backendStatus: 'checking' | 'ready' | 'error';
+}
+
+const AppContent: React.FC<AppContentProps> = ({ backendReady, backendStatus }) => {
   const { lastEvent } = useLogStore();
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null);
   const [videos, setVideos] = useState<VideoResource[]>([]);
@@ -98,12 +103,18 @@ const AppContent: React.FC = () => {
   }, [apiBase]);
 
   useEffect(() => {
+    if (!backendReady) {
+      return;
+    }
     refreshAssets();
-  }, [refreshAssets]);
+  }, [backendReady, refreshAssets]);
 
   useEffect(() => {
+    if (!backendReady) {
+      return;
+    }
     refreshThemes();
-  }, [refreshThemes]);
+  }, [backendReady, refreshThemes]);
 
   // Derive active video object
   const activeVideo = activeVideoId
@@ -180,6 +191,19 @@ const AppContent: React.FC = () => {
                   Logs
                </button>
 
+               {/* Refresh Button */}
+               <button
+                 onClick={() => {
+                   refreshAssets();
+                   refreshThemes();
+                 }}
+                 disabled={!backendReady}
+                 className="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-800 transition-colors border border-transparent hover:border-slate-700 disabled:opacity-40"
+               >
+                 <RefreshCw size={14} />
+                 Refresh
+               </button>
+
                {/* Project Settings Button */}
                <button 
                   onClick={() => setIsProjectConfigOpen(true)}
@@ -227,7 +251,13 @@ const AppContent: React.FC = () => {
           
           {currentView === 'pipeline' ? (
              <div className="h-full flex flex-col overflow-hidden animate-in fade-in duration-300">
-                {activeVideo ? (
+                {!backendReady ? (
+                  <div className="flex-1 flex items-center justify-center text-sm text-slate-500">
+                    {backendStatus === 'checking'
+                      ? 'Backend starting...'
+                      : 'Backend unavailable. Please start the server.'}
+                  </div>
+                ) : activeVideo ? (
                   <div className="flex-1 overflow-y-auto custom-scrollbar pt-6 pb-20 snap-y snap-mandatory scroll-pt-6">
                       <div className="space-y-12">
                         <Step1Segmentation 
@@ -299,9 +329,47 @@ const AppContent: React.FC = () => {
 };
 
 const App: React.FC = () => {
+  const [backendReady, setBackendReady] = useState(false);
+  const [backendStatus, setBackendStatus] = useState<'checking' | 'ready' | 'error'>('checking');
+  const apiBase = import.meta.env.VITE_API_BASE || '';
+
+  useEffect(() => {
+    let cancelled = false;
+    let retryDelay = 1000;
+
+    const healthUrl = apiBase ? `${apiBase}/api/health` : 'http://127.0.0.1:8000/api/health';
+
+    const checkHealth = async () => {
+      try {
+        const response = await fetch(healthUrl, { cache: 'no-store' });
+        if (!response.ok) {
+          throw new Error(`Health check failed: ${response.status}`);
+        }
+        if (cancelled) {
+          return;
+        }
+        setBackendReady(true);
+        setBackendStatus('ready');
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setBackendReady(false);
+        setBackendStatus('checking');
+        retryDelay = Math.min(retryDelay * 1.5, 5000);
+        window.setTimeout(checkHealth, retryDelay);
+      }
+    };
+
+    checkHealth();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase]);
+
   return (
-    <LogProvider>
-      <AppContent />
+    <LogProvider enabled={backendReady}>
+      <AppContent backendReady={backendReady} backendStatus={backendStatus} />
     </LogProvider>
   );
 };

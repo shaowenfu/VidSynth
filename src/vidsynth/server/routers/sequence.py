@@ -54,6 +54,15 @@ def get_edl(theme_slug: str) -> List[Dict[str, Any]]:
     return _format_edl_response(path, fallback_video_id=None)
 
 
+@router.get("/sequence/{theme_slug}/status")
+def get_sequence_status(theme_slug: str) -> Dict[str, Any]:
+    ensure_workspace_layout()
+    path = EDL_DIR / theme_slug / "status.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="status not found")
+    return _read_json_dict(path)
+
+
 @router.get("/sequence/{theme_slug}/{video_id}/edl")
 def get_edl_legacy(theme_slug: str, video_id: str) -> List[Dict[str, Any]]:
     ensure_workspace_layout()
@@ -73,6 +82,16 @@ def _read_json_list(path: Path) -> List[Dict[str, Any]]:
         if isinstance(item, dict):
             cleaned.append(item)
     return cleaned
+
+
+def _read_json_dict(path: Path) -> Dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=500, detail="invalid status payload") from exc
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=500, detail="invalid status payload")
+    return data
 
 
 def _format_edl_response(path: Path, fallback_video_id: str | None) -> List[Dict[str, Any]]:

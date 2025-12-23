@@ -89,6 +89,13 @@ class SequenceTaskManager:
             targets = self._default_video_ids(resolved_slug)
         if not targets:
             return {"theme": theme, "theme_slug": resolved_slug, "status": "skipped"}
+        params_payload = {
+            "upper_threshold": threshold_upper,
+            "lower_threshold": threshold_lower if threshold_lower <= threshold_upper else threshold_upper,
+            "min_duration": min_seconds,
+            "max_duration": max_seconds,
+            "merge_gap": merge_gap,
+        }
         if not force and self._edl_path(resolved_slug).exists():
             self._write_status(
                 theme=theme,
@@ -97,6 +104,9 @@ class SequenceTaskManager:
                 progress=1.0,
                 message="cached",
                 video_id=None,
+                video_ids=targets,
+                params=params_payload,
+                edl_path=f"edl/{resolved_slug}/edl.json",
             )
             self._publish_status(resolved_slug)
             return {
@@ -129,6 +139,8 @@ class SequenceTaskManager:
                 progress=0.0,
                 message="queued",
                 video_id=None,
+                video_ids=targets,
+                params=params_payload,
             )
         self._publish_status(resolved_slug)
         return {
@@ -164,6 +176,7 @@ class SequenceTaskManager:
             event = {
                 "stage": "sequence",
                 "theme": job.theme,
+                "theme_slug": job.theme_slug,
                 "video_id": current_video,
                 "status": "running",
                 "progress": current_progress,
@@ -181,9 +194,11 @@ class SequenceTaskManager:
             score_map = scores_payload.get("scores", {})
             video_ids = job.video_ids or self._default_video_ids(job.theme_slug)
             total = len(video_ids)
+            logger.info("SEQUENCE start theme=%s videos=%s", theme_value, len(video_ids))
             combined_edl: List[Dict[str, Any]] = []
             for index, video_id in enumerate(video_ids):
                 current_video = video_id
+                logger.info("SEQUENCE processing video_id=%s", video_id)
                 clips = self._load_clips(video_id)
                 entries = score_map.get(video_id) or []
                 if not clips or not entries:
@@ -207,6 +222,14 @@ class SequenceTaskManager:
                     progress=current_progress,
                     message=f"sequenced {video_id}",
                     video_id=video_id,
+                    video_ids=video_ids,
+                    params={
+                        "upper_threshold": job.threshold_upper,
+                        "lower_threshold": job.threshold_lower,
+                        "min_duration": job.min_seconds,
+                        "max_duration": job.max_seconds,
+                        "merge_gap": job.merge_gap,
+                    },
                 )
                 self._publish_status(job.theme_slug)
             if not combined_edl:
@@ -215,6 +238,7 @@ class SequenceTaskManager:
                     logger.info("RESULT fallback_topk count=%s", len(combined_edl))
             if not combined_edl:
                 logger.info("RESULT empty_edl theme=%s", job.theme_slug)
+            logger.info("RESULT edl_items=%s", len(combined_edl))
             self._write_edl(job.theme_slug, combined_edl)
             self._write_status(
                 theme=theme_value,
@@ -223,6 +247,16 @@ class SequenceTaskManager:
                 progress=1.0,
                 message="done",
                 video_id=None,
+                video_ids=video_ids,
+                params={
+                    "upper_threshold": job.threshold_upper,
+                    "lower_threshold": job.threshold_lower,
+                    "min_duration": job.min_seconds,
+                    "max_duration": job.max_seconds,
+                    "merge_gap": job.merge_gap,
+                },
+                edl_path=f"edl/{job.theme_slug}/edl.json",
+                stats={"edl_items": len(combined_edl)},
             )
             self._publish_status(job.theme_slug)
             self._broadcaster.publish(
@@ -237,6 +271,7 @@ class SequenceTaskManager:
                 }
             )
         except Exception as exc:
+            logger.error("RESULT error theme=%s error=%s", job.theme_slug, exc)
             self._write_status(
                 theme=job.theme,
                 theme_slug=job.theme_slug,
@@ -244,6 +279,14 @@ class SequenceTaskManager:
                 progress=0.0,
                 message=str(exc),
                 video_id=current_video,
+                video_ids=job.video_ids,
+                params={
+                    "upper_threshold": job.threshold_upper,
+                    "lower_threshold": job.threshold_lower,
+                    "min_duration": job.min_seconds,
+                    "max_duration": job.max_seconds,
+                    "merge_gap": job.merge_gap,
+                },
             )
             self._publish_status(job.theme_slug)
         finally:
@@ -264,6 +307,10 @@ class SequenceTaskManager:
             raise ValueError("invalid scores payload") from exc
 
     def _load_clips(self, video_id: str) -> List[Clip]:
+        meta_path = SEGMENTATION_DIR / video_id / "clips_meta.json"
+        if meta_path.exists():
+            return self._load_clips_meta(meta_path, video_id)
+
         path = SEGMENTATION_DIR / video_id / "clips.json"
         if not path.exists():
             return []
@@ -280,7 +327,59 @@ class SequenceTaskManager:
                     clips.append(Clip.from_dict(item))
                 except Exception:
                     continue
+        if clips:
+            self._cache_clips_meta(video_id, clips)
         return clips
+
+    def _load_clips_meta(self, path: Path, video_id: str) -> List[Clip]:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return []
+        if not isinstance(payload, list):
+            return []
+        clips: List[Clip] = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            try:
+                created_at = item.get("created_at")
+                clips.append(
+                    Clip(
+                        video_id=item.get("video_id", video_id),
+                        clip_id=int(item.get("clip_id", 0)),
+                        t_start=float(item.get("t_start", 0.0)),
+                        t_end=float(item.get("t_end", 0.0)),
+                        fps_keyframe=float(item.get("fps_keyframe", 0.0)),
+                        vis_emb_avg=(),
+                        emb_model=str(item.get("emb_model", "")),
+                        created_at=datetime.fromisoformat(created_at)
+                        if isinstance(created_at, str)
+                        else datetime.now(timezone.utc),
+                        version=int(item.get("version", 1)),
+                    )
+                )
+            except Exception:
+                continue
+        return clips
+
+    def _cache_clips_meta(self, video_id: str, clips: List[Clip]) -> None:
+        path = SEGMENTATION_DIR / video_id / "clips_meta.json"
+        payload = [
+            {
+                "video_id": clip.video_id,
+                "clip_id": clip.clip_id,
+                "t_start": clip.t_start,
+                "t_end": clip.t_end,
+                "fps_keyframe": clip.fps_keyframe,
+                "emb_model": clip.emb_model,
+                "created_at": clip.created_at.isoformat(),
+                "version": clip.version,
+            }
+            for clip in clips
+        ]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._atomic_write_json(path, payload)
 
     def _to_scores(
         self,
@@ -403,6 +502,10 @@ class SequenceTaskManager:
         progress: float,
         message: str,
         video_id: str | None,
+        video_ids: List[str] | None = None,
+        params: Dict[str, Any] | None = None,
+        edl_path: str | None = None,
+        stats: Dict[str, Any] | None = None,
     ) -> None:
         now = datetime.now(timezone.utc).isoformat()
         normalized = max(0.0, min(1.0, float(progress)))
@@ -415,6 +518,14 @@ class SequenceTaskManager:
             updated_at=now,
             video_id=video_id,
         ).to_dict()
+        if video_ids is not None:
+            payload["video_ids"] = list(video_ids)
+        if params is not None:
+            payload["params"] = params
+        if edl_path is not None:
+            payload["edl_path"] = edl_path
+        if stats is not None:
+            payload["stats"] = stats
         path = self._status_path(theme_slug)
         path.parent.mkdir(parents=True, exist_ok=True)
         self._atomic_write_json(path, payload)

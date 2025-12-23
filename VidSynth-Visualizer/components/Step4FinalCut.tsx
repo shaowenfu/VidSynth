@@ -61,6 +61,11 @@ const Step4FinalCut: React.FC<Step4Props> = ({
     try {
       const response = await fetch(resolveApiPath(`/api/sequence/${selectedTheme.theme_slug}/edl`));
       if (!response.ok) {
+        if (response.status === 404) {
+          setEdlItems([]);
+          setEdlError(null);
+          return;
+        }
         throw new Error(`Request failed: ${response.status}`);
       }
       const payload = await response.json();

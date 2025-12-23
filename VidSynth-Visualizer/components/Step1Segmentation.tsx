@@ -33,6 +33,7 @@ const Step1Segmentation: React.FC<Step1Props> = ({
   const [predictedRaw, setPredictedRaw] = useState<unknown | null>(null);
   const [groundTruthSegments, setGroundTruthSegments] = useState<Segment[]>([]);
   const [groundTruthRaw, setGroundTruthRaw] = useState<unknown | null>(null);
+  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [progressByVideo, setProgressByVideo] = useState<Record<string, number>>({});
   const [statusByVideo, setStatusByVideo] = useState<Record<string, TaskStatus>>({});
   const [taskError, setTaskError] = useState<string | null>(null);
@@ -145,6 +146,7 @@ const Step1Segmentation: React.FC<Step1Props> = ({
     setPredictedRaw(null);
     setGroundTruthSegments([]);
     setGroundTruthRaw(null);
+    setSelectedClipId(null);
     setTaskError(null);
     setJsonView('gt');
     const status = resolveStatus(video);
@@ -255,6 +257,13 @@ const Step1Segmentation: React.FC<Step1Props> = ({
     return `${m}:${s.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
   };
 
+  const formatTickTime = (t: number) => {
+    const totalSeconds = Math.floor(t);
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
   // Distinct Color Palette for timeline clips
   const PALETTE = [
     { bg: 'bg-[#FF6B6B]', border: 'border-[#EE5253]', hover: 'hover:bg-[#FF8787]' }, // Red
@@ -275,6 +284,30 @@ const Step1Segmentation: React.FC<Step1Props> = ({
   const resolvedDuration = playerDuration || video.duration || 0;
   const safeDuration = resolvedDuration > 0 ? resolvedDuration : 1;
   const playheadPercent = Math.min(100, Math.max(0, (currentTime / safeDuration) * 100));
+  const labelWidth = 56;
+  const timeTicks = useMemo(() => {
+    if (safeDuration <= 0) {
+      return [];
+    }
+    const duration = Math.max(1, Math.floor(safeDuration));
+    let step = 1;
+    if (duration > 300) step = 20;
+    else if (duration > 180) step = 10;
+    else if (duration > 120) step = 5;
+    else if (duration > 60) step = 2;
+    const ticks: { time: number; major: boolean; label: string }[] = [];
+    const maxTicks = 10;
+    const tickCount = Math.max(1, Math.floor(duration / step));
+    const labelEvery = Math.max(1, Math.ceil(tickCount / maxTicks));
+    for (let t = 0, index = 0; t <= duration; t += step, index += 1) {
+      ticks.push({
+        time: t,
+        major: index % labelEvery === 0,
+        label: formatTickTime(t),
+      });
+    }
+    return ticks;
+  }, [safeDuration]);
 
   const seekToPointer = (event: React.PointerEvent<HTMLDivElement>) => {
     const duration = playerDuration || videoRef.current?.duration || video.duration || 0;
@@ -289,6 +322,19 @@ const Step1Segmentation: React.FC<Step1Props> = ({
       videoRef.current.currentTime = target;
     }
     setCurrentTime(target);
+  };
+
+  const handleClipSeek = (seg: Segment) => {
+    if (!videoRef.current) {
+      return;
+    }
+    const start = Math.max(0, seg.start);
+    const end = Math.max(start, seg.end);
+    setSelectedClipId(seg.id);
+    videoRef.current.currentTime = start;
+    setCurrentTime(start);
+    setClipEndTime(end);
+    setIsPlaying(true);
   };
 
   return (
@@ -398,120 +444,179 @@ const Step1Segmentation: React.FC<Step1Props> = ({
                 </div>
             </div>
 
-            {/* 1.2 Minimalist Timeline - Fixed Height */}
-            <div className="h-32 bg-[#0f0f10] rounded-xl border border-slate-800 flex flex-col relative select-none shadow-lg overflow-hidden shrink-0">
+            {/* 1.2 Timeline - Professional Layout */}
+            <div className="h-40 bg-[#0f0f10] rounded-xl border border-slate-800 flex flex-col relative select-none shadow-lg overflow-hidden shrink-0">
                 {/* Clean Header */}
                 <div className="h-8 border-b border-slate-800/50 flex items-center justify-between px-4 bg-[#141416]">
                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Temporal Alignment</span>
-                   <span className="text-[10px] font-mono text-slate-600">DURATION: {video.duration}s</span>
+                   <span className="text-[10px] font-mono text-slate-600">DURATION: {safeDuration.toFixed(2)}s</span>
                 </div>
 
-                {/* Simple Tracks Container */}
-                <div
-                    className="flex-1 px-3 flex flex-col justify-center gap-3 relative cursor-pointer"
-                    onPointerDown={(event) => {
-                      setIsScrubbing(true);
-                      event.currentTarget.setPointerCapture(event.pointerId);
-                      seekToPointer(event);
-                    }}
-                    onPointerMove={(event) => {
-                      if (!isScrubbing) return;
-                      seekToPointer(event);
-                    }}
-                    onPointerUp={(event) => {
-                      setIsScrubbing(false);
-                      event.currentTarget.releasePointerCapture(event.pointerId);
-                    }}
-                    onPointerCancel={() => {
-                      setIsScrubbing(false);
-                    }}
-                    onPointerLeave={() => {
-                      if (isScrubbing) {
-                        setIsScrubbing(false);
-                      }
-                    }}
-                  >
-                    {/* Playhead Line */}
-                    <div
-                      className="absolute top-0 bottom-0 z-30 pointer-events-none border-l-2 border-white/40"
-                      style={{ left: `${playheadPercent}%` }}
-                    ></div>
-
-                    {/* Track 1: GT (Ground Truth) */}
-                    <div className="h-6 flex items-center gap-3">
-                        <div className="w-12 flex items-center justify-end gap-2 text-emerald-500/80">
-                            <span className="text-[9px] font-bold tracking-wider">GT</span>
-                            <MonitorPlay size={10} />
-                        </div>
-                        <div className="flex-1 h-5 bg-[#18181b] rounded relative overflow-hidden ring-1 ring-white/5">
-                             {/* Background Grid */}
-                             <div className="absolute inset-0 w-full h-full opacity-5" style={{ backgroundImage: 'linear-gradient(90deg, #fff 1px, transparent 1px)', backgroundSize: `${100 / safeDuration}% 100%` }}></div>
-                             
-                             {groundTruthSegments.map((seg, idx) => {
-                                const colors = getClipColor(idx + 2);
-                                return (
-                                    <div
-                                        key={seg.id}
-                                        onMouseEnter={(e) => setHoverInfo({ segment: seg, x: e.clientX, y: e.clientY })}
-                                        onMouseMove={(e) => setHoverInfo(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : null)}
-                                        onMouseLeave={() => setHoverInfo(null)}
-                                        className={`absolute top-0.5 bottom-0.5 rounded-sm border-l-2 cursor-pointer transition-all ${colors.bg} ${colors.border} opacity-80 hover:opacity-100 hover:brightness-110`}
-                                        style={{
-                                            left: `${(seg.start / safeDuration) * 100}%`,
-                                            width: `${((seg.end - seg.start) / safeDuration) * 100}%`,
-                                        }}
-                                    />
-                                );
-                            })}
+                <div className="flex-1 px-3 py-2 relative">
+                    {/* Time Ruler */}
+                    <div className="grid grid-cols-[56px_1fr] items-end text-[9px] text-slate-600">
+                        <div className="font-mono uppercase tracking-wider">TIME</div>
+                        <div className="relative h-6">
+                            {timeTicks.map((tick, idx) => (
+                                <div
+                                  key={`tick-${idx}`}
+                                  className="absolute top-0 bottom-0"
+                                  style={{ left: `${(tick.time / safeDuration) * 100}%` }}
+                                >
+                                  <div className={`absolute -top-1 -translate-x-1/2 ${tick.major ? 'text-slate-400' : 'text-slate-600'}`}>
+                                    {tick.major ? tick.label : ''}
+                                  </div>
+                                  <div
+                                    className={`absolute bottom-0 left-1/2 -translate-x-1/2 w-px ${
+                                      tick.major ? 'h-3 bg-slate-500/60' : 'h-2 bg-slate-700/60'
+                                    }`}
+                                  />
+                                </div>
+                            ))}
+                            <div className="absolute inset-x-0 bottom-0 h-px bg-slate-800/80"></div>
                         </div>
                     </div>
 
-                    {/* Track 2: Prediction (System Output) */}
-                    <div className="h-6 flex items-center gap-3">
-                        <div className="w-12 flex items-center justify-end gap-2 text-blue-500/80">
-                             <span className="text-[9px] font-bold tracking-wider">PRED</span>
-                             <Activity size={10} />
+                    <div className="mt-2 relative">
+                        {/* Playhead Line */}
+                        <div className="absolute top-0 bottom-0 right-0 pointer-events-none" style={{ left: `${labelWidth}px` }}>
+                          <div
+                            className="absolute top-0 bottom-0 z-30 border-l-2 border-white/40"
+                            style={{ left: `${playheadPercent}%` }}
+                          ></div>
                         </div>
-                        <div className="flex-1 h-5 bg-[#18181b] rounded relative overflow-hidden ring-1 ring-white/5 transition-colors">
-                            {/* Empty State / Running State */}
-                            {!isProcessing && !hasPredicted && !hasError && (
-                                <div className="absolute inset-0 flex items-center justify-center">
-                                    <span className="text-[8px] text-slate-700 font-mono tracking-tight">-- NO SEGMENTS --</span>
-                                </div>
-                            )}
-                            {hasError && (
-                                <div className="absolute inset-0 flex items-center justify-center">
-                                    <span className="text-[8px] text-rose-400 font-mono tracking-tight">-- SEGMENTATION FAILED --</span>
-                                </div>
-                            )}
-                            {isProcessing && (
-                                <div className="absolute inset-0 bg-blue-500/10 flex items-center justify-center">
-                                    <div className="w-1/3 h-0.5 bg-blue-500/30 rounded-full overflow-hidden">
-                                        <div className="h-full bg-blue-400 animate-progress-indeterminate"></div>
-                                    </div>
-                                </div>
-                            )}
 
-                            {/* Segments (Only show when done) */}
-                            {hasPredicted && predictedSegments.map((seg, idx) => {
-                                const colors = getClipColor(idx);
-                                return (
-                                    <div
-                                        key={seg.id}
-                                        onMouseEnter={(e) => setHoverInfo({ segment: seg, x: e.clientX, y: e.clientY })}
-                                        onMouseMove={(e) => setHoverInfo(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : null)}
-                                        onMouseLeave={() => setHoverInfo(null)}
-                                        className={`absolute top-0.5 bottom-0.5 rounded-sm border-l-2 cursor-pointer transition-all ${colors.bg} ${colors.border} opacity-90 hover:opacity-100 hover:scale-[1.01] shadow-sm`}
-                                        style={{
-                                            left: `${(seg.start / safeDuration) * 100}%`,
-                                            width: `${((seg.end - seg.start) / safeDuration) * 100}%`,
-                                        }}
-                                    />
-                                );
-                            })}
+                        <div className="space-y-3">
+                            {/* Track 1: GT (Ground Truth) */}
+                            <div className="grid grid-cols-[56px_1fr] items-center">
+                                <div className="flex items-center justify-end gap-2 text-emerald-500/80">
+                                    <span className="text-[9px] font-bold tracking-wider">GT</span>
+                                    <MonitorPlay size={10} />
+                                </div>
+                                <div
+                                  className="relative h-5 bg-[#18181b] rounded overflow-hidden ring-1 ring-white/5 cursor-pointer"
+                                  onPointerDown={(event) => {
+                                    setIsScrubbing(true);
+                                    event.currentTarget.setPointerCapture(event.pointerId);
+                                    seekToPointer(event);
+                                  }}
+                                  onPointerMove={(event) => {
+                                    if (!isScrubbing) return;
+                                    seekToPointer(event);
+                                  }}
+                                  onPointerUp={(event) => {
+                                    setIsScrubbing(false);
+                                    event.currentTarget.releasePointerCapture(event.pointerId);
+                                  }}
+                                  onPointerCancel={() => {
+                                    setIsScrubbing(false);
+                                  }}
+                                  onPointerLeave={() => {
+                                    if (isScrubbing) {
+                                      setIsScrubbing(false);
+                                    }
+                                  }}
+                                >
+                                     {/* Background Grid */}
+                                     <div className="absolute inset-0 w-full h-full opacity-5" style={{ backgroundImage: 'linear-gradient(90deg, #fff 1px, transparent 1px)', backgroundSize: `${100 / safeDuration}% 100%` }}></div>
+                                     
+                                     {groundTruthSegments.map((seg, idx) => {
+                                        const colors = getClipColor(idx + 2);
+                                        const isSelected = selectedClipId === seg.id;
+                                        return (
+                                            <div
+                                                key={seg.id}
+                                                onClick={() => handleClipSeek(seg)}
+                                                onMouseEnter={(e) => setHoverInfo({ segment: seg, x: e.clientX, y: e.clientY })}
+                                                onMouseMove={(e) => setHoverInfo(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : null)}
+                                                onMouseLeave={() => setHoverInfo(null)}
+                                                className={`absolute top-0.5 bottom-0.5 rounded-sm border-l-2 cursor-pointer transition-all ${colors.bg} ${colors.border} ${
+                                                  isSelected ? 'ring-2 ring-white/70 opacity-100' : 'opacity-80 hover:opacity-100 hover:brightness-110'
+                                                }`}
+                                                style={{
+                                                    left: `${(seg.start / safeDuration) * 100}%`,
+                                                    width: `${((seg.end - seg.start) / safeDuration) * 100}%`,
+                                                }}
+                                            />
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Track 2: Prediction (System Output) */}
+                            <div className="grid grid-cols-[56px_1fr] items-center">
+                                <div className="flex items-center justify-end gap-2 text-blue-500/80">
+                                     <span className="text-[9px] font-bold tracking-wider">PRED</span>
+                                     <Activity size={10} />
+                                </div>
+                                <div
+                                  className="relative h-5 bg-[#18181b] rounded overflow-hidden ring-1 ring-white/5 transition-colors cursor-pointer"
+                                  onPointerDown={(event) => {
+                                    setIsScrubbing(true);
+                                    event.currentTarget.setPointerCapture(event.pointerId);
+                                    seekToPointer(event);
+                                  }}
+                                  onPointerMove={(event) => {
+                                    if (!isScrubbing) return;
+                                    seekToPointer(event);
+                                  }}
+                                  onPointerUp={(event) => {
+                                    setIsScrubbing(false);
+                                    event.currentTarget.releasePointerCapture(event.pointerId);
+                                  }}
+                                  onPointerCancel={() => {
+                                    setIsScrubbing(false);
+                                  }}
+                                  onPointerLeave={() => {
+                                    if (isScrubbing) {
+                                      setIsScrubbing(false);
+                                    }
+                                  }}
+                                >
+                                    {/* Empty State / Running State */}
+                                    {!isProcessing && !hasPredicted && !hasError && (
+                                        <div className="absolute inset-0 flex items-center justify-center">
+                                            <span className="text-[8px] text-slate-700 font-mono tracking-tight">-- NO SEGMENTS --</span>
+                                        </div>
+                                    )}
+                                    {hasError && (
+                                        <div className="absolute inset-0 flex items-center justify-center">
+                                            <span className="text-[8px] text-rose-400 font-mono tracking-tight">-- SEGMENTATION FAILED --</span>
+                                        </div>
+                                    )}
+                                    {isProcessing && (
+                                        <div className="absolute inset-0 bg-blue-500/10 flex items-center justify-center">
+                                            <div className="w-1/3 h-0.5 bg-blue-500/30 rounded-full overflow-hidden">
+                                                <div className="h-full bg-blue-400 animate-progress-indeterminate"></div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Segments (Only show when done) */}
+                                    {hasPredicted && predictedSegments.map((seg, idx) => {
+                                        const colors = getClipColor(idx);
+                                        const isSelected = selectedClipId === seg.id;
+                                        return (
+                                            <div
+                                                key={seg.id}
+                                                onClick={() => handleClipSeek(seg)}
+                                                onMouseEnter={(e) => setHoverInfo({ segment: seg, x: e.clientX, y: e.clientY })}
+                                                onMouseMove={(e) => setHoverInfo(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : null)}
+                                                onMouseLeave={() => setHoverInfo(null)}
+                                                className={`absolute top-0.5 bottom-0.5 rounded-sm border-l-2 cursor-pointer transition-all ${colors.bg} ${colors.border} ${
+                                                  isSelected ? 'ring-2 ring-white/70 opacity-100' : 'opacity-90 hover:opacity-100 hover:scale-[1.01] shadow-sm'
+                                                }`}
+                                                style={{
+                                                    left: `${(seg.start / safeDuration) * 100}%`,
+                                                    width: `${((seg.end - seg.start) / safeDuration) * 100}%`,
+                                                }}
+                                            />
+                                        );
+                                    })}
+                                </div>
+                            </div>
                         </div>
                     </div>
-
                 </div>
             </div>
         </div>

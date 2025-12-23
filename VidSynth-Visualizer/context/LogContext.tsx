@@ -1,11 +1,23 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { LogEntry, LogLevel, LogStage } from '../types';
 
+interface StatusSnapshot {
+  stage: LogStage;
+  status: string;
+  progress: number | null;
+  message?: string;
+  theme?: string;
+  theme_slug?: string;
+  video_id?: string;
+  updated_at: string;
+}
+
 interface LogContextType {
   logs: LogEntry[];
   clearLogs: () => void;
   isConnected: boolean;
   lastEvent: Record<string, any> | null;
+  statusByStage: Record<string, StatusSnapshot>;
 }
 
 const LogContext = createContext<LogContextType | undefined>(undefined);
@@ -18,11 +30,18 @@ export const useLogStore = () => {
   return context;
 };
 
-export const LogProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const LogProvider: React.FC<{ children: React.ReactNode; enabled?: boolean }> = ({
+  children,
+  enabled = true,
+}) => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [lastEvent, setLastEvent] = useState<Record<string, any> | null>(null);
+  const [statusByStage, setStatusByStage] = useState<Record<string, StatusSnapshot>>({});
   const eventSourceRef = useRef<EventSource | null>(null);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const [connectTick, setConnectTick] = useState(0);
+  const statusLogStateRef = useRef<Record<string, { status: string; bucket: number }>>({});
   const apiBase = import.meta.env.VITE_API_BASE || '';
 
   const addLog = (log: LogEntry) => {
@@ -38,16 +57,65 @@ export const LogProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const clearLogs = () => setLogs([]);
 
+  const mapStage = (stage: string): LogStage => {
+    if (stage === 'segment') return 'segmentation';
+    if (stage === 'theme_match') return 'matching';
+    if (stage === 'sequence') return 'sequencing';
+    if (stage === 'export') return 'export';
+    if (stage === 'clustering') return 'clustering';
+    if (stage === 'system') return 'system';
+    return 'general';
+  };
+
+  const addStatusLog = (payload: Record<string, any>) => {
+    const stage = mapStage(String(payload.stage || 'general'));
+    const status = String(payload.status || 'unknown');
+    const progressValue = typeof payload.progress === 'number' ? Math.round(payload.progress * 100) : null;
+    const bucket = progressValue === null ? -1 : Math.floor(progressValue / 10);
+    const key = `${stage}:${payload.theme_slug ?? payload.video_id ?? ''}`;
+    const prev = statusLogStateRef.current[key];
+    if (prev && prev.status === status && prev.bucket === bucket) {
+      return;
+    }
+    statusLogStateRef.current[key] = { status, bucket };
+    const message = [
+      `STATUS ${status.toUpperCase()}`,
+      progressValue !== null ? `${progressValue}%` : null,
+      payload.message ? `- ${payload.message}` : null,
+    ]
+      .filter(Boolean)
+      .join(' ');
+    const entry: LogEntry = {
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      level: status === 'error' ? 'ERROR' : 'INFO',
+      stage,
+      message,
+      context: { source: 'status', ...payload },
+    };
+    addLog(entry);
+  };
+
   useEffect(() => {
+    if (!enabled) {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+      if (reconnectTimerRef.current) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      setIsConnected(false);
+      return;
+    }
+
     const url = `${apiBase}/api/events`;
-    console.log(`LogProvider: Connecting to SSE at ${url}`);
-    
     const es = new EventSource(url);
     eventSourceRef.current = es;
 
     es.onopen = () => {
       setIsConnected(true);
-      console.log('LogProvider: SSE Connected');
     };
 
     es.onmessage = (event) => {
@@ -78,8 +146,27 @@ export const LogProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                  // (Backend transformation ensures logs are separate, so this might duplicate if not careful)
                  // Let's stick to only 'type: log' for the Console to keep it clean.
                 setLastEvent(payload);
+                addStatusLog(payload);
             } else {
                 setLastEvent(payload);
+            }
+
+            if (payload.stage && payload.status) {
+              const stage = mapStage(String(payload.stage));
+              const progressValue = typeof payload.progress === 'number' ? Math.round(payload.progress * 100) : null;
+              setStatusByStage((prev) => ({
+                ...prev,
+                [stage]: {
+                  stage,
+                  status: String(payload.status),
+                  progress: progressValue,
+                  message: payload.message,
+                  theme: payload.theme,
+                  theme_slug: payload.theme_slug,
+                  video_id: payload.video_id,
+                  updated_at: payload.updated_at || new Date().toISOString(),
+                },
+              }));
             }
 
         } catch (err) {
@@ -87,16 +174,15 @@ export const LogProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
     };
 
-    es.onerror = (err) => {
-      console.error('LogProvider: SSE Error', err);
+    es.onerror = () => {
       setIsConnected(false);
       es.close();
-      // Simple reconnect logic could be added here
-      setTimeout(() => {
-          // Trigger re-render to retry effect? 
-          // For MVP, we just let it close. 
-          // Real prod should have robust retry.
-      }, 5000);
+      if (reconnectTimerRef.current) {
+        window.clearTimeout(reconnectTimerRef.current);
+      }
+      reconnectTimerRef.current = window.setTimeout(() => {
+        setConnectTick((prev) => prev + 1);
+      }, 2000);
     };
 
     return () => {
@@ -104,12 +190,16 @@ export const LogProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         eventSourceRef.current.close();
         eventSourceRef.current = null;
       }
+      if (reconnectTimerRef.current) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       setIsConnected(false);
     };
-  }, [apiBase]);
+  }, [apiBase, enabled, connectTick]);
 
   return (
-    <LogContext.Provider value={{ logs, clearLogs, isConnected, lastEvent }}>
+    <LogContext.Provider value={{ logs, clearLogs, isConnected, lastEvent, statusByStage }}>
       {children}
     </LogContext.Provider>
   );

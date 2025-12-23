@@ -120,6 +120,13 @@ def list_assets() -> List[Dict[str, Any]]:
     return _list_assets()
 
 
+@router.get("/health")
+def health_check() -> Dict[str, Any]:
+    """Lightweight health check for frontend readiness."""
+
+    return {"status": "ok"}
+
+
 @router.post("/import/videos")
 async def import_videos(files: List[UploadFile] = File(...)) -> List[Dict[str, Any]]:
     """Receive uploaded videos and write into workspace."""

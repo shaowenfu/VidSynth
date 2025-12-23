@@ -9,11 +9,12 @@ interface LogConsoleModalProps {
 }
 
 const LogConsoleModal: React.FC<LogConsoleModalProps> = ({ isOpen, onClose }) => {
-  const { logs, clearLogs, isConnected } = useLogStore();
+  const { logs, clearLogs, isConnected, statusByStage } = useLogStore();
   const [filterText, setFilterText] = useState('');
   const [activeLevels, setActiveLevels] = useState<Set<LogLevel>>(new Set(['INFO', 'WARNING', 'ERROR']));
   const [activeStage, setActiveStage] = useState<LogStage | 'ALL'>('ALL');
   const [autoScroll, setAutoScroll] = useState(true);
+  const [showStatusLogs, setShowStatusLogs] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll logic
@@ -34,9 +35,10 @@ const LogConsoleModal: React.FC<LogConsoleModalProps> = ({ isOpen, onClose }) =>
     return logs.filter(log => 
       activeLevels.has(log.level) && 
       (activeStage === 'ALL' || log.stage === activeStage) &&
+      (showStatusLogs || log.context?.source !== 'status') &&
       log.message.toLowerCase().includes(filterText.toLowerCase())
     );
-  }, [logs, filterText, activeLevels, activeStage]);
+  }, [logs, filterText, activeLevels, activeStage, showStatusLogs]);
 
   if (!isOpen) return null;
 
@@ -57,6 +59,20 @@ const LogConsoleModal: React.FC<LogConsoleModalProps> = ({ isOpen, onClose }) =>
           case 'export': return 'text-orange-400';
           default: return 'text-slate-400';
       }
+  };
+
+  const stageCards: { stage: LogStage; label: string }[] = [
+    { stage: 'segmentation', label: 'Segmentation' },
+    { stage: 'matching', label: 'Matching' },
+    { stage: 'sequencing', label: 'Sequencing' },
+    { stage: 'export', label: 'Export' },
+  ];
+
+  const formatProgress = (value: number | null | undefined) => {
+    if (value === null || value === undefined) {
+      return '--%';
+    }
+    return `${value}%`;
   };
 
   return (
@@ -117,6 +133,17 @@ const LogConsoleModal: React.FC<LogConsoleModalProps> = ({ isOpen, onClose }) =>
                <Filter className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" size={12} />
            </div>
 
+           <button
+             onClick={() => setShowStatusLogs((prev) => !prev)}
+             className={`px-2 py-1 rounded border text-[10px] font-semibold uppercase tracking-wide transition-colors ${
+               showStatusLogs
+                 ? 'border-cyan-500/50 text-cyan-300 bg-cyan-500/10'
+                 : 'border-slate-700 text-slate-500'
+             }`}
+           >
+             Status Logs
+           </button>
+
            {/* Search */}
            <div className="relative flex-1 max-w-xs">
                <input 
@@ -148,6 +175,34 @@ const LogConsoleModal: React.FC<LogConsoleModalProps> = ({ isOpen, onClose }) =>
            </button>
         </div>
 
+        {/* Stage Overview */}
+        <div className="grid grid-cols-4 gap-2 px-4 py-3 bg-[#0b0b0d] border-b border-slate-800 text-[10px]">
+          {stageCards.map((card) => {
+            const snapshot = statusByStage[card.stage];
+            const status = snapshot?.status?.toUpperCase() || 'IDLE';
+            const progress = snapshot?.progress ?? null;
+            const themeSlug = snapshot?.theme_slug;
+            return (
+              <div key={card.stage} className="bg-slate-950 border border-slate-800 rounded-lg p-2 flex flex-col gap-1">
+                <div className="flex items-center justify-between">
+                  <span className={`font-semibold ${getStageColor(card.stage)}`}>{card.label}</span>
+                  <span className="text-[9px] text-slate-500">{status}</span>
+                </div>
+                <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-slate-400"
+                    style={{ width: `${progress ?? 0}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-[9px] text-slate-500">
+                  <span>{formatProgress(progress)}</span>
+                  <span className="truncate max-w-[90px]">{themeSlug || ''}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
         {/* Console Content */}
         <div className="flex-1 overflow-y-auto bg-[#050505] p-4 font-mono text-[11px] leading-relaxed custom-scrollbar selection:bg-cyan-500/30">
             {visibleLogs.length === 0 ? (
@@ -157,7 +212,9 @@ const LogConsoleModal: React.FC<LogConsoleModalProps> = ({ isOpen, onClose }) =>
                 </div>
             ) : (
                 visibleLogs.map(log => (
-                <div key={log.id} className={`flex gap-3 mb-0.5 p-1 rounded hover:bg-white/5 transition-colors group ${log.level === 'ERROR' ? 'bg-rose-950/10 border-l-2 border-rose-900/50 pl-2' : ''}`}>
+                <div key={log.id} className={`flex gap-3 mb-0.5 p-1 rounded hover:bg-white/5 transition-colors group ${
+                  log.level === 'ERROR' ? 'bg-rose-950/10 border-l-2 border-rose-900/50 pl-2' : ''
+                }`}>
                     
                     {/* Timestamp */}
                     <span className="text-slate-600 w-20 shrink-0 select-none">

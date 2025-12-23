@@ -194,7 +194,7 @@ const ProjectConfigModal: React.FC<ProjectConfigModalProps> = ({
                             <div className="absolute bottom-2 left-2 right-2">
                                 <div className="text-[11px] text-white font-medium truncate drop-shadow-md">{vid.name}</div>
                                 <div className="flex items-center gap-2 mt-0.5">
-                                <span className="text-[10px] text-slate-300 bg-black/40 px-1.5 rounded backdrop-blur-sm font-mono">{vid.duration}s</span>
+                                <span className="text-[10px] text-slate-300 bg-black/40 px-1.5 rounded backdrop-blur-sm font-mono">{vid.duration.toFixed(2)}s</span>
                                 </div>
                             </div>
                             
@@ -210,6 +210,15 @@ const ProjectConfigModal: React.FC<ProjectConfigModalProps> = ({
                                   <div className="w-2.5 h-2.5 rounded-full bg-rose-500 box-content border-2 border-black/50" />
                                 )}
                             </div>
+
+                            {(vid.status === 'running' || vid.status === 'queued') && typeof vid.progress === 'number' && (
+                              <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/60">
+                                <div
+                                  className="h-full bg-amber-400"
+                                  style={{ width: `${Math.round(vid.progress * 100)}%` }}
+                                />
+                              </div>
+                            )}
                             
                             {/* Selection Ring */}
                             {activeVideoId === vid.id && (
