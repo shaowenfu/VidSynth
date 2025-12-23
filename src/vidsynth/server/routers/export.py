@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api", tags=["export"])
 class ExportRequest(BaseModel):
     theme: str = Field(..., min_length=1)
     theme_slug: str | None = None
-    video_id: str = Field(..., min_length=1)
+    video_id: str | None = None
     edl_path: str | None = None
     source_video_path: str | None = None
     force: bool = False
@@ -36,28 +36,31 @@ def export_video(request: ExportRequest) -> Dict[str, Any]:
         source_video_path=request.source_video_path,
     )
 
-
-@router.get("/export/{theme_slug}/{video_id}")
-def export_status(theme_slug: str, video_id: str) -> Dict[str, Any]:
+@router.get("/export/{theme_slug}")
+def export_status(theme_slug: str) -> Dict[str, Any]:
     ensure_workspace_layout()
-    status_path = EXPORTS_DIR / theme_slug / video_id / "status.json"
-    output_path = EXPORTS_DIR / theme_slug / video_id / "output.mp4"
+    status_path = EXPORTS_DIR / theme_slug / "status.json"
+    output_path = EXPORTS_DIR / theme_slug / "output.mp4"
     payload: Dict[str, Any] = {}
     if status_path.exists():
         payload = _read_json(status_path)
     else:
         payload = {
             "theme_slug": theme_slug,
-            "video_id": video_id,
             "status": "done" if output_path.exists() else "idle",
             "progress": 1.0 if output_path.exists() else 0.0,
             "message": "",
         }
     result_path = None
     if output_path.exists():
-        result_path = f"exports/{theme_slug}/{video_id}/output.mp4"
+        result_path = f"exports/{theme_slug}/output.mp4"
     payload["result_path"] = result_path
     return payload
+
+
+@router.get("/export/{theme_slug}/{video_id}")
+def export_status_legacy(theme_slug: str, video_id: str) -> Dict[str, Any]:
+    return export_status(theme_slug)
 
 
 def _read_json(path: Path) -> Dict[str, Any]:

@@ -47,31 +47,18 @@ def run_sequence(request: SequenceRequest) -> Dict[str, Any]:
     )
 
 
-@router.get("/sequence/{theme_slug}/{video_id}/edl")
-def get_edl(theme_slug: str, video_id: str) -> List[Dict[str, Any]]:
+@router.get("/sequence/{theme_slug}/edl")
+def get_edl(theme_slug: str) -> List[Dict[str, Any]]:
     ensure_workspace_layout()
-    path = EDL_DIR / theme_slug / video_id / "edl.json"
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="edl not found")
-    payload = _read_json_list(path)
-    items: List[Dict[str, Any]] = []
-    for idx, entry in enumerate(payload, start=1):
-        try:
-            t_start = float(entry.get("t_start", 0.0))
-            t_end = float(entry.get("t_end", 0.0))
-        except (TypeError, ValueError):
-            continue
-        items.append(
-            {
-                "index": idx,
-                "source_video_id": str(entry.get("video_id", video_id)),
-                "t_start": t_start,
-                "t_end": t_end,
-                "duration": max(0.0, t_end - t_start),
-                "reason": str(entry.get("reason", "")),
-            }
-        )
-    return items
+    path = EDL_DIR / theme_slug / "edl.json"
+    return _format_edl_response(path, fallback_video_id=None)
+
+
+@router.get("/sequence/{theme_slug}/{video_id}/edl")
+def get_edl_legacy(theme_slug: str, video_id: str) -> List[Dict[str, Any]]:
+    ensure_workspace_layout()
+    path = EDL_DIR / theme_slug / "edl.json"
+    return _format_edl_response(path, fallback_video_id=video_id)
 
 
 def _read_json_list(path: Path) -> List[Dict[str, Any]]:
@@ -86,3 +73,31 @@ def _read_json_list(path: Path) -> List[Dict[str, Any]]:
         if isinstance(item, dict):
             cleaned.append(item)
     return cleaned
+
+
+def _format_edl_response(path: Path, fallback_video_id: str | None) -> List[Dict[str, Any]]:
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="edl not found")
+    payload = _read_json_list(path)
+    items: List[Dict[str, Any]] = []
+    for idx, entry in enumerate(payload, start=1):
+        try:
+            t_start = float(entry.get("t_start", 0.0))
+            t_end = float(entry.get("t_end", 0.0))
+        except (TypeError, ValueError):
+            continue
+        source_video_id = str(entry.get("video_id") or fallback_video_id or "")
+        items.append(
+            {
+                "index": idx,
+                "source_video_id": source_video_id,
+                "t_start": t_start,
+                "t_end": t_end,
+                "duration": max(0.0, t_end - t_start),
+                "reason": str(entry.get("reason", "")),
+                "clip_id": entry.get("clip_id"),
+                "thumb_url": entry.get("thumb_url"),
+                "score": entry.get("score"),
+            }
+        )
+    return items

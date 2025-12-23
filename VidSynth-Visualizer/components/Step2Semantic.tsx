@@ -2,10 +2,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { VideoResource, Segment } from '../types';
 import { Flame, PlayCircle, Activity, Play, CheckCircle2, ScanSearch, Plus, X } from 'lucide-react';
+import { useLogStore } from '../context/LogContext';
 
 interface Step2Props {
   videos: VideoResource[];
-  onRequestSeek: (videoId: string, time: number) => void;
+  onRequestSeek: (videoId: string, time: number, endTime?: number) => void;
   onThemeResolved?: (theme: string, themeSlug: string | null) => void;
 }
 
@@ -53,10 +54,13 @@ const Step2Semantic: React.FC<Step2Props> = ({ videos, onRequestSeek, onThemeRes
   const [scoresPayload, setScoresPayload] = useState<ThemeScoresPayload | null>(null);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
   const [hoveredSegment, setHoveredSegment] = useState<{ seg: FlattenedSegment, x: number, y: number } | null>(null);
+  const [selectedVideoIds, setSelectedVideoIds] = useState<string[]>([]);
+  const [isVideoSelectorOpen, setIsVideoSelectorOpen] = useState(false);
   
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const apiBase = import.meta.env.VITE_API_BASE || '';
+  const { lastEvent } = useLogStore();
 
   const resolveApiPath = (path: string) => (apiBase ? `${apiBase}${path}` : path);
 
@@ -73,7 +77,29 @@ const Step2Semantic: React.FC<Step2Props> = ({ videos, onRequestSeek, onThemeRes
     return apiBase ? `${apiBase}/static/${path}` : `/static/${path}`;
   };
 
+  const segmentedVideos = useMemo(() => {
+    return videos.filter((video) => video.segmented || video.status === 'done' || video.status === 'cached');
+  }, [videos]);
+
+  useEffect(() => {
+    const availableIds = segmentedVideos.map((video) => video.id);
+    setSelectedVideoIds((prev) => {
+      if (prev.length === 0) {
+        return availableIds;
+      }
+      const next = prev.filter((id) => availableIds.includes(id));
+      return next.length ? next : availableIds;
+    });
+  }, [segmentedVideos]);
+
   // Flatten all segments from all videos into a single timeline
+  const displayVideos = useMemo(() => {
+    if (selectedVideoIds.length === 0) {
+      return segmentedVideos;
+    }
+    return segmentedVideos.filter((video) => selectedVideoIds.includes(video.id));
+  }, [segmentedVideos, selectedVideoIds]);
+
   const allSegments = useMemo(() => {
     let index = 0;
     const flat: FlattenedSegment[] = [];
@@ -81,7 +107,7 @@ const Step2Semantic: React.FC<Step2Props> = ({ videos, onRequestSeek, onThemeRes
       return flat;
     }
     const scoreMap = scoresPayload.scores || {};
-    videos.forEach((video) => {
+    displayVideos.forEach((video) => {
       const entries = scoreMap[video.id] || [];
       entries.forEach((entry) => {
         const thumbUrl = resolveResultPath(entry.thumb_url) || video.thumbnail;
@@ -101,7 +127,11 @@ const Step2Semantic: React.FC<Step2Props> = ({ videos, onRequestSeek, onThemeRes
       });
     });
     return flat;
-  }, [scoresPayload, videos, apiBase]);
+  }, [scoresPayload, displayVideos, apiBase]);
+
+  const inspectionSegments = useMemo(() => {
+    return [...allSegments].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  }, [allSegments]);
 
   const isAnalyzing = analysisStatus === 'queued' || analysisStatus === 'running';
 
@@ -109,7 +139,7 @@ const Step2Semantic: React.FC<Step2Props> = ({ videos, onRequestSeek, onThemeRes
     if (isAnalyzing || !themeText.trim() || !isConfirmed) {
       return;
     }
-    const targetVideos = videos.filter((video) => video.segmented);
+    const targetVideos = displayVideos.length ? displayVideos : segmentedVideos;
     if (targetVideos.length === 0) {
       setAnalysisStatus('error');
       setAnalysisMessage('No segmented videos available');
@@ -262,7 +292,7 @@ const Step2Semantic: React.FC<Step2Props> = ({ videos, onRequestSeek, onThemeRes
 
   const handleSegmentClick = (seg: FlattenedSegment) => {
     setSelectedSegmentId(seg.id);
-    onRequestSeek(seg.videoId, seg.start);
+    onRequestSeek(seg.videoId, seg.start, seg.end);
     const element = itemRefs.current.get(seg.id);
     if (element && scrollContainerRef.current) {
       element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
@@ -291,60 +321,47 @@ const Step2Semantic: React.FC<Step2Props> = ({ videos, onRequestSeek, onThemeRes
   }, [analysisTheme, analysisThemeSlug, onThemeResolved]);
 
   useEffect(() => {
-    const source = new EventSource(resolveApiPath('/api/events'));
-    const handleMessage = (event: MessageEvent) => {
-      if (!event.data) {
+    if (!lastEvent || lastEvent.stage !== 'theme_match') {
+      return;
+    }
+    if (analysisThemeSlug && lastEvent.theme_slug && lastEvent.theme_slug !== analysisThemeSlug) {
+      return;
+    }
+    if (analysisTheme && lastEvent.theme && lastEvent.theme !== analysisTheme && !lastEvent.theme_slug) {
+      return;
+    }
+    const status = lastEvent.status as 'queued' | 'running' | 'done' | 'cached' | 'error' | undefined;
+    if (status) {
+      setAnalysisStatus(status);
+    }
+    if (typeof lastEvent.progress === 'number') {
+      setProgress(Math.round(lastEvent.progress * 100));
+    }
+    if (status === 'done' || status === 'cached') {
+      setProgress(100);
+    }
+    if (typeof lastEvent.message === 'string' && lastEvent.message) {
+      setAnalysisMessage(lastEvent.message);
+    }
+    if ((status === 'done' || status === 'cached') && lastEvent.result_path) {
+      const url = resolveResultPath(lastEvent.result_path);
+      if (!url) {
         return;
       }
-      try {
-        const message = JSON.parse(event.data);
-        if (message?.stage !== 'theme_match') {
-          return;
-        }
-        if (analysisTheme && message.theme && message.theme !== analysisTheme) {
-          return;
-        }
-        const status = message.status as 'queued' | 'running' | 'done' | 'cached' | 'error' | undefined;
-        if (status) {
-          setAnalysisStatus(status);
-        }
-        if (typeof message.progress === 'number') {
-          setProgress(Math.round(message.progress * 100));
-        }
-        if (status === 'done' || status === 'cached') {
-          setProgress(100);
-        }
-        if (typeof message.message === 'string' && message.message) {
-          setAnalysisMessage(message.message);
-        }
-        if ((status === 'done' || status === 'cached') && message.result_path) {
-          const url = resolveResultPath(message.result_path);
-          if (!url) {
-            return;
+      fetch(url)
+        .then((response) => response.json())
+        .then((payload) => {
+          setScoresPayload(payload);
+          if (payload?.meta?.theme_slug) {
+            setAnalysisThemeSlug(payload.meta.theme_slug);
           }
-          fetch(url)
-            .then((response) => response.json())
-            .then((payload) => {
-              setScoresPayload(payload);
-              if (payload?.meta?.theme_slug) {
-                setAnalysisThemeSlug(payload.meta.theme_slug);
-              }
-            })
-            .catch((error) => {
-              setAnalysisStatus('error');
-              setAnalysisMessage(error instanceof Error ? error.message : 'Failed to load scores');
-            });
-        }
-      } catch (error) {
-        return;
-      }
-    };
-    source.onmessage = handleMessage;
-    source.onerror = () => {
-      setAnalysisMessage('SSE connection lost');
-    };
-    return () => source.close();
-  }, [analysisTheme, apiBase]);
+        })
+        .catch((error) => {
+          setAnalysisStatus('error');
+          setAnalysisMessage(error instanceof Error ? error.message : 'Failed to load scores');
+        });
+    }
+  }, [lastEvent, analysisTheme, analysisThemeSlug, apiBase]);
 
   return (
     <section className="mb-8 border-b border-slate-800 pb-8 relative snap-start scroll-mt-6">
@@ -400,6 +417,56 @@ const Step2Semantic: React.FC<Step2Props> = ({ videos, onRequestSeek, onThemeRes
                 >
                   {isConfirmed ? 'Confirmed' : 'Confirm'}
                 </button>
+                <div className="relative">
+                  <button
+                    onClick={() => setIsVideoSelectorOpen((prev) => !prev)}
+                    className="px-3 py-2 rounded text-xs font-semibold border transition-colors bg-slate-800 text-slate-200 border-slate-700 hover:border-cyan-500"
+                  >
+                    Videos: {selectedVideoIds.length}/{segmentedVideos.length}
+                  </button>
+                  {isVideoSelectorOpen && (
+                    <div className="absolute right-0 mt-2 w-56 bg-slate-950 border border-slate-800 rounded-lg shadow-xl z-20 p-3 text-xs">
+                      <div className="flex items-center justify-between mb-2 text-[10px] text-slate-500 uppercase">
+                        <span>Target Videos</span>
+                        <div className="flex gap-2">
+                          <button
+                            className="text-cyan-400 hover:text-cyan-300"
+                            onClick={() => setSelectedVideoIds(segmentedVideos.map((v) => v.id))}
+                          >
+                            All
+                          </button>
+                          <button
+                            className="text-slate-500 hover:text-slate-300"
+                            onClick={() => setSelectedVideoIds([])}
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+                      <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                        {segmentedVideos.map((video) => (
+                          <label key={video.id} className="flex items-center gap-2 text-slate-300 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={selectedVideoIds.includes(video.id)}
+                              onChange={() =>
+                                setSelectedVideoIds((prev) =>
+                                  prev.includes(video.id)
+                                    ? prev.filter((id) => id !== video.id)
+                                    : [...prev, video.id]
+                                )
+                              }
+                            />
+                            <span className="truncate">{video.name}</span>
+                          </label>
+                        ))}
+                        {segmentedVideos.length === 0 && (
+                          <div className="text-[10px] text-slate-500">No segmented videos</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
             </div>
             <button 
                 onClick={() => handleStartAnalysis(false)}
@@ -579,7 +646,7 @@ const Step2Semantic: React.FC<Step2Props> = ({ videos, onRequestSeek, onThemeRes
                 ref={scrollContainerRef}
                 className="flex gap-4 overflow-x-auto pb-4 pt-1 custom-scrollbar scroll-smooth min-h-[180px]"
             >
-                {allSegments.map((seg, idx) => (
+                {inspectionSegments.map((seg, idx) => (
                     <div 
                         key={seg.id}
                         ref={(el) => {

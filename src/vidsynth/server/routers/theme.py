@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from vidsynth.theme_match import build_theme_query
 
 from ..state import theme_task_manager
-from ..workspace import THEMES_DIR, ensure_workspace_layout
+from ..workspace import EDL_DIR, EXPORTS_DIR, THEMES_DIR, ensure_workspace_layout
 
 router = APIRouter(prefix="/api/theme", tags=["theme"])
 
@@ -60,6 +60,39 @@ def get_theme_result(theme_slug: str) -> Dict[str, Any]:
     if not path.exists():
         raise HTTPException(status_code=404, detail="scores not found")
     return _read_json(path)
+
+
+@router.get("/themes")
+def list_themes() -> List[Dict[str, Any]]:
+    ensure_workspace_layout()
+    results: List[Dict[str, Any]] = []
+    if not THEMES_DIR.exists():
+        return results
+    for theme_dir in sorted(THEMES_DIR.iterdir()):
+        if not theme_dir.is_dir():
+            continue
+        scores_path = theme_dir / "scores.json"
+        if not scores_path.exists():
+            continue
+        try:
+            payload = json.loads(scores_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        meta = payload.get("meta", {}) if isinstance(payload, dict) else {}
+        score_map = payload.get("scores", {}) if isinstance(payload, dict) else {}
+        theme_slug = theme_dir.name
+        results.append(
+            {
+                "theme_slug": theme_slug,
+                "theme": meta.get("theme", theme_slug),
+                "created_at": meta.get("created_at"),
+                "video_ids": sorted(list(score_map.keys())) if isinstance(score_map, dict) else [],
+                "has_scores": True,
+                "has_edl": (EDL_DIR / theme_slug / "edl.json").exists(),
+                "has_export": (EXPORTS_DIR / theme_slug / "output.mp4").exists(),
+            }
+        )
+    return results
 
 
 def _read_json(path: Path) -> Dict[str, Any]:

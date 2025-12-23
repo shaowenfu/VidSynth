@@ -5,6 +5,7 @@ interface LogContextType {
   logs: LogEntry[];
   clearLogs: () => void;
   isConnected: boolean;
+  lastEvent: Record<string, any> | null;
 }
 
 const LogContext = createContext<LogContextType | undefined>(undefined);
@@ -20,6 +21,7 @@ export const useLogStore = () => {
 export const LogProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isConnected, setIsConnected] = useState(false);
+  const [lastEvent, setLastEvent] = useState<Record<string, any> | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const apiBase = import.meta.env.VITE_API_BASE || '';
 
@@ -65,6 +67,7 @@ export const LogProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                     module: payload.module
                 };
                 addLog(entry);
+                setLastEvent(payload);
             } 
             // Handle legacy/task status messages as logs too if needed, or ignore
             // For now, we mainly focus on explicit logs. 
@@ -74,6 +77,9 @@ export const LogProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                  // Avoid duplicates if the backend also logs this event
                  // (Backend transformation ensures logs are separate, so this might duplicate if not careful)
                  // Let's stick to only 'type: log' for the Console to keep it clean.
+                setLastEvent(payload);
+            } else {
+                setLastEvent(payload);
             }
 
         } catch (err) {
@@ -103,7 +109,7 @@ export const LogProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [apiBase]);
 
   return (
-    <LogContext.Provider value={{ logs, clearLogs, isConnected }}>
+    <LogContext.Provider value={{ logs, clearLogs, isConnected, lastEvent }}>
       {children}
     </LogContext.Provider>
   );

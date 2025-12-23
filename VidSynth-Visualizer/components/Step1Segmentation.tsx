@@ -1,13 +1,14 @@
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { VideoResource, Segment, TaskStatus } from '../types';
 import { Play, Pause, Scissors, Code, ChevronDown, MonitorPlay, Activity, FileCode, BarChart3, PieChart, TrendingUp } from 'lucide-react';
+import { useLogStore } from '../context/LogContext';
 
 interface Step1Props {
   video: VideoResource;
   allVideos: VideoResource[];
   onSelectVideo: (id: string) => void;
-  seekRequest?: { videoId: string; time: number } | null;
+  seekRequest?: { videoId: string; time: number; end?: number } | null;
   onSeekHandled?: () => void;
 }
 
@@ -24,11 +25,35 @@ const Step1Segmentation: React.FC<Step1Props> = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const apiBase = import.meta.env.VITE_API_BASE || '';
+  const { lastEvent } = useLogStore();
   
+  const [playerDuration, setPlayerDuration] = useState(0);
+  const [clipEndTime, setClipEndTime] = useState<number | null>(null);
   const [predictedSegments, setPredictedSegments] = useState<Segment[]>([]);
+  const [predictedRaw, setPredictedRaw] = useState<unknown | null>(null);
+  const [groundTruthSegments, setGroundTruthSegments] = useState<Segment[]>([]);
+  const [groundTruthRaw, setGroundTruthRaw] = useState<unknown | null>(null);
   const [progressByVideo, setProgressByVideo] = useState<Record<string, number>>({});
   const [statusByVideo, setStatusByVideo] = useState<Record<string, TaskStatus>>({});
   const [taskError, setTaskError] = useState<string | null>(null);
+  const [jsonView, setJsonView] = useState<'gt' | 'pred'>('gt');
+
+  const filteredPredictedRaw = useMemo(() => {
+    if (!predictedRaw) {
+      return null;
+    }
+    const strip = (entry: any) => {
+      if (!entry || typeof entry !== 'object') {
+        return entry;
+      }
+      const { vis_emb_avg, ...rest } = entry as Record<string, unknown>;
+      return rest;
+    };
+    if (Array.isArray(predictedRaw)) {
+      return predictedRaw.map(strip);
+    }
+    return strip(predictedRaw);
+  }, [predictedRaw]);
 
   const resolveStatus = (target: VideoResource) => {
     const stored = statusByVideo[target.id];
@@ -71,6 +96,7 @@ const Step1Segmentation: React.FC<Step1Props> = ({
       if (!Array.isArray(payload)) {
         return;
       }
+      setPredictedRaw(payload);
       const segments: Segment[] = payload.map((clip) => ({
         id: `clip_${clip.clip_id ?? clip.clipId ?? clip.id ?? ''}`,
         start: Number(clip.t_start ?? clip.start ?? 0),
@@ -83,14 +109,52 @@ const Step1Segmentation: React.FC<Step1Props> = ({
     }
   }, []);
 
+  const fetchGroundTruth = useCallback(async (gtUrl?: string | null) => {
+    if (!gtUrl) {
+      setGroundTruthSegments([]);
+      setGroundTruthRaw(null);
+      return;
+    }
+    const url = resolveStaticPath(gtUrl);
+    try {
+      const response = await fetch(url || '');
+      if (!response.ok) {
+        return;
+      }
+      const payload = await response.json();
+      const rawSegments = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.segments)
+          ? payload.segments
+          : [];
+      setGroundTruthRaw(payload);
+      const segments: Segment[] = rawSegments.map((seg: any, index: number) => ({
+        id: String(seg.id ?? `gt_${index + 1}`),
+        start: Number(seg.t_start ?? seg.start ?? 0),
+        end: Number(seg.t_end ?? seg.end ?? 0),
+        label: seg.label ? String(seg.label) : `GT ${index + 1}`,
+      }));
+      setGroundTruthSegments(segments);
+    } catch (error) {
+      return;
+    }
+  }, []);
+
   useEffect(() => {
     setPredictedSegments([]);
+    setPredictedRaw(null);
+    setGroundTruthSegments([]);
+    setGroundTruthRaw(null);
     setTaskError(null);
+    setJsonView('gt');
     const status = resolveStatus(video);
     if (status === 'done' || video.segmented) {
       fetchSegments(video.id, video.clipsUrl);
     }
-  }, [video.id, video.segmented, video.clipsUrl, fetchSegments]);
+    if (video.hasGT) {
+      fetchGroundTruth(video.gtUrl);
+    }
+  }, [video.id, video.segmented, video.clipsUrl, video.hasGT, video.gtUrl, fetchSegments, fetchGroundTruth]);
 
   useEffect(() => {
     const element = videoRef.current;
@@ -110,6 +174,8 @@ const Step1Segmentation: React.FC<Step1Props> = ({
   useEffect(() => {
     setIsPlaying(false);
     setCurrentTime(0);
+    setClipEndTime(null);
+    setPlayerDuration(0);
     const element = videoRef.current;
     if (element) {
       element.currentTime = 0;
@@ -127,48 +193,38 @@ const Step1Segmentation: React.FC<Step1Props> = ({
     }
     element.currentTime = Math.max(0, seekRequest.time);
     setCurrentTime(element.currentTime);
+    const targetEnd = typeof seekRequest.end === 'number'
+      ? Math.max(seekRequest.end, seekRequest.time)
+      : null;
+    setClipEndTime(targetEnd);
     setIsPlaying(true);
     onSeekHandled?.();
   }, [seekRequest, video.id, onSeekHandled]);
 
   useEffect(() => {
-    const source = new EventSource(resolveApiPath('/api/events'));
-    const handleMessage = (event: MessageEvent) => {
-      if (!event.data) return;
-      try {
-        const message = JSON.parse(event.data);
-        if (message?.stage !== 'segment') {
-          return;
-        }
-        const videoId = message.video_id as string | undefined;
-        if (!videoId) {
-          return;
-        }
-        const status = message.status as TaskStatus | undefined;
-        if (status) {
-          setStatusByVideo((prev) => ({ ...prev, [videoId]: status }));
-        }
-        if (typeof message.progress === 'number') {
-          const percent = Math.round(message.progress * 100);
-          setProgressByVideo((prev) => ({ ...prev, [videoId]: percent }));
-        }
-        if ((status === 'done' || status === 'cached') && videoId === video.id) {
-          const resultUrl = resolveStaticPath(message.result_path);
-          fetchSegments(videoId, resultUrl);
-        }
-        if (status === 'error' && videoId === video.id) {
-          setTaskError(message.message || 'Task failed');
-        }
-      } catch (error) {
-        return;
-      }
-    };
-    source.onmessage = handleMessage;
-    source.onerror = () => {
-      setTaskError('SSE connection lost');
-    };
-    return () => source.close();
-  }, [video.id, fetchSegments]);
+    if (!lastEvent || lastEvent.stage !== 'segment') {
+      return;
+    }
+    const videoId = lastEvent.video_id as string | undefined;
+    if (!videoId) {
+      return;
+    }
+    const status = lastEvent.status as TaskStatus | undefined;
+    if (status) {
+      setStatusByVideo((prev) => ({ ...prev, [videoId]: status }));
+    }
+    if (typeof lastEvent.progress === 'number') {
+      const percent = Math.round(lastEvent.progress * 100);
+      setProgressByVideo((prev) => ({ ...prev, [videoId]: percent }));
+    }
+    if ((status === 'done' || status === 'cached') && videoId === video.id) {
+      const resultUrl = resolveStaticPath(lastEvent.result_path);
+      fetchSegments(videoId, resultUrl);
+    }
+    if (status === 'error' && videoId === video.id) {
+      setTaskError(lastEvent.message || 'Task failed');
+    }
+  }, [lastEvent, video.id, fetchSegments]);
 
   const handleExecute = async () => {
     const currentStatus = resolveStatus(video);
@@ -216,17 +272,19 @@ const Step1Segmentation: React.FC<Step1Props> = ({
   const isDone = currentStatus === 'done' || currentStatus === 'cached';
   const hasPredicted = predictedSegments.length > 0;
   const hasError = currentStatus === 'error';
-  const safeDuration = video.duration > 0 ? video.duration : 1;
+  const resolvedDuration = playerDuration || video.duration || 0;
+  const safeDuration = resolvedDuration > 0 ? resolvedDuration : 1;
   const playheadPercent = Math.min(100, Math.max(0, (currentTime / safeDuration) * 100));
 
   const seekToPointer = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!video.duration) {
+    const duration = playerDuration || videoRef.current?.duration || video.duration || 0;
+    if (!duration) {
       return;
     }
     const rect = event.currentTarget.getBoundingClientRect();
     const ratio = (event.clientX - rect.left) / rect.width;
     const clamped = Math.min(1, Math.max(0, ratio));
-    const target = clamped * video.duration;
+    const target = clamped * duration;
     if (videoRef.current) {
       videoRef.current.currentTime = target;
     }
@@ -304,12 +362,22 @@ const Step1Segmentation: React.FC<Step1Props> = ({
                     ref={videoRef}
                     className="w-full h-full object-contain"
                     src={video.url}
-                    loop 
-                    muted
-                    onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+                    playsInline
+                    onTimeUpdate={(event) => {
+                      const element = event.currentTarget;
+                      const time = element.currentTime;
+                      setCurrentTime(time);
+                      if (clipEndTime !== null && time >= clipEndTime) {
+                        element.pause();
+                        setIsPlaying(false);
+                        setClipEndTime(null);
+                      }
+                    }}
                     onLoadedMetadata={(event) => {
                       const element = event.currentTarget;
                       setCurrentTime(element.currentTime || 0);
+                      const duration = Number.isFinite(element.duration) ? element.duration : video.duration;
+                      setPlayerDuration(duration || 0);
                     }}
                     onEnded={() => setIsPlaying(false)}
                 />
@@ -325,7 +393,7 @@ const Step1Segmentation: React.FC<Step1Props> = ({
                         {isPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}
                     </button>
                     <div className="mb-3 font-mono text-2xl font-bold text-white tracking-widest drop-shadow-md flex items-baseline gap-2">
-                        {formatTime(currentTime)} <span className="text-white/40 text-sm font-medium">/ {formatTime(video.duration)}</span>
+                        {formatTime(currentTime)} <span className="text-white/40 text-sm font-medium">/ {formatTime(safeDuration)}</span>
                     </div>
                 </div>
             </div>
@@ -377,9 +445,9 @@ const Step1Segmentation: React.FC<Step1Props> = ({
                         </div>
                         <div className="flex-1 h-5 bg-[#18181b] rounded relative overflow-hidden ring-1 ring-white/5">
                              {/* Background Grid */}
-                             <div className="absolute inset-0 w-full h-full opacity-5" style={{ backgroundImage: 'linear-gradient(90deg, #fff 1px, transparent 1px)', backgroundSize: `${100/video.duration}% 100%` }}></div>
+                             <div className="absolute inset-0 w-full h-full opacity-5" style={{ backgroundImage: 'linear-gradient(90deg, #fff 1px, transparent 1px)', backgroundSize: `${100 / safeDuration}% 100%` }}></div>
                              
-                             {video.groundTruth?.segments.map((seg, idx) => {
+                             {groundTruthSegments.map((seg, idx) => {
                                 const colors = getClipColor(idx + 2);
                                 return (
                                     <div
@@ -389,8 +457,8 @@ const Step1Segmentation: React.FC<Step1Props> = ({
                                         onMouseLeave={() => setHoverInfo(null)}
                                         className={`absolute top-0.5 bottom-0.5 rounded-sm border-l-2 cursor-pointer transition-all ${colors.bg} ${colors.border} opacity-80 hover:opacity-100 hover:brightness-110`}
                                         style={{
-                                            left: `${(seg.start / video.duration) * 100}%`,
-                                            width: `${((seg.end - seg.start) / video.duration) * 100}%`,
+                                            left: `${(seg.start / safeDuration) * 100}%`,
+                                            width: `${((seg.end - seg.start) / safeDuration) * 100}%`,
                                         }}
                                     />
                                 );
@@ -435,8 +503,8 @@ const Step1Segmentation: React.FC<Step1Props> = ({
                                         onMouseLeave={() => setHoverInfo(null)}
                                         className={`absolute top-0.5 bottom-0.5 rounded-sm border-l-2 cursor-pointer transition-all ${colors.bg} ${colors.border} opacity-90 hover:opacity-100 hover:scale-[1.01] shadow-sm`}
                                         style={{
-                                            left: `${(seg.start / video.duration) * 100}%`,
-                                            width: `${((seg.end - seg.start) / video.duration) * 100}%`,
+                                            left: `${(seg.start / safeDuration) * 100}%`,
+                                            width: `${((seg.end - seg.start) / safeDuration) * 100}%`,
                                         }}
                                     />
                                 );
@@ -453,19 +521,54 @@ const Step1Segmentation: React.FC<Step1Props> = ({
            <div className="bg-slate-900/80 p-3 border-b border-slate-800 flex items-center justify-between backdrop-blur shrink-0">
               <div className="flex items-center gap-2">
                  <FileCode size={14} className="text-amber-500" />
-                 <span className="text-xs font-bold text-slate-300 truncate">ground_truth.json</span>
+                 <span className="text-xs font-bold text-slate-300 truncate">
+                   {jsonView === 'gt' ? 'ground_truth.json' : 'clips.json'}
+                 </span>
+              </div>
+              <div className="flex items-center gap-1 text-[10px]">
+                <button
+                  onClick={() => setJsonView('gt')}
+                  className={`px-2 py-0.5 rounded border ${
+                    jsonView === 'gt'
+                      ? 'border-emerald-500/60 text-emerald-300 bg-emerald-500/10'
+                      : 'border-slate-700 text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  GT
+                </button>
+                <button
+                  onClick={() => setJsonView('pred')}
+                  className={`px-2 py-0.5 rounded border ${
+                    jsonView === 'pred'
+                      ? 'border-cyan-500/60 text-cyan-300 bg-cyan-500/10'
+                      : 'border-slate-700 text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  PRED
+                </button>
               </div>
               <div className="text-[9px] text-slate-500 font-mono">ID: {video.id}</div>
            </div>
            <div className="flex-1 overflow-y-auto p-3 custom-scrollbar bg-[#09090b]">
-             {video.hasGT ? (
-               <pre className="text-[9px] font-mono text-emerald-400/90 leading-relaxed whitespace-pre-wrap font-medium break-all">
-                 {JSON.stringify(video.groundTruth, null, 2)}
+             {jsonView === 'gt' ? (
+               video.hasGT && groundTruthRaw ? (
+                 <pre className="text-[9px] font-mono text-emerald-400/90 leading-relaxed whitespace-pre-wrap font-medium break-all">
+                   {JSON.stringify(groundTruthRaw, null, 2)}
+                 </pre>
+               ) : (
+                 <div className="h-full flex flex-col items-center justify-center text-slate-700 gap-3">
+                   <Code size={24} strokeWidth={1.5} />
+                   <span className="text-[10px] text-center px-4 leading-tight">No Ground Truth JSON mapped.</span>
+                 </div>
+               )
+             ) : filteredPredictedRaw ? (
+               <pre className="text-[9px] font-mono text-cyan-300/90 leading-relaxed whitespace-pre-wrap font-medium break-all">
+                 {JSON.stringify(filteredPredictedRaw, null, 2)}
                </pre>
              ) : (
                <div className="h-full flex flex-col items-center justify-center text-slate-700 gap-3">
                  <Code size={24} strokeWidth={1.5} />
-                 <span className="text-[10px] text-center px-4 leading-tight">No Ground Truth JSON mapped.</span>
+                 <span className="text-[10px] text-center px-4 leading-tight">No segmentation output yet.</span>
                </div>
              )}
            </div>

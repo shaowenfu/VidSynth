@@ -1,15 +1,23 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { VideoResource, EdlEntry } from '../types';
-import { Clapperboard, Download, Scissors } from 'lucide-react';
+import { VideoResource, EdlEntry, ThemeSummary } from '../types';
+import { Clapperboard, Download, Scissors, ChevronDown } from 'lucide-react';
+import { useLogStore } from '../context/LogContext';
 
 interface Step4Props {
-  video: VideoResource;
-  theme: string | null;
-  themeSlug: string | null;
+  videos: VideoResource[];
+  themes: ThemeSummary[];
+  activeThemeSlug: string | null;
+  onSelectTheme: (theme: ThemeSummary) => void;
   refreshKey?: number;
 }
 
-const Step4FinalCut: React.FC<Step4Props> = ({ video, theme, themeSlug, refreshKey }) => {
+const Step4FinalCut: React.FC<Step4Props> = ({
+  videos,
+  themes,
+  activeThemeSlug,
+  onSelectTheme,
+  refreshKey,
+}) => {
   const [edlItems, setEdlItems] = useState<EdlEntry[]>([]);
   const [edlError, setEdlError] = useState<string | null>(null);
   const [exportStatus, setExportStatus] = useState<'idle' | 'queued' | 'running' | 'cached' | 'done' | 'error'>('idle');
@@ -21,18 +29,37 @@ const Step4FinalCut: React.FC<Step4Props> = ({ video, theme, themeSlug, refreshK
 
   const apiBase = import.meta.env.VITE_API_BASE || '';
   const resolveApiPath = (path: string) => (apiBase ? `${apiBase}${path}` : path);
+  const resolveStaticPath = (path?: string | null) => {
+    if (!path) return '';
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      return path;
+    }
+    if (path.startsWith('/')) {
+      return apiBase ? `${apiBase}${path}` : path;
+    }
+    return apiBase ? `${apiBase}/static/${path}` : `/static/${path}`;
+  };
 
-  const outputBase = themeSlug ? resolveApiPath(`/static/exports/${themeSlug}/${video.id}/output.mp4`) : '';
+  const selectedTheme = useMemo(() => {
+    return themes.find((theme) => theme.theme_slug === activeThemeSlug) || null;
+  }, [themes, activeThemeSlug]);
+  const { lastEvent } = useLogStore();
+
+  const videoMap = useMemo(() => {
+    return new Map(videos.map((video) => [video.id, video]));
+  }, [videos]);
+
+  const outputBase = selectedTheme ? resolveApiPath(`/static/exports/${selectedTheme.theme_slug}/output.mp4`) : '';
   const outputUrl = outputBase ? `${outputBase}?t=${exportNonce}` : '';
 
   const fetchEdl = useCallback(async () => {
-    if (!themeSlug) {
+    if (!selectedTheme) {
       setEdlItems([]);
       return;
     }
     setEdlError(null);
     try {
-      const response = await fetch(resolveApiPath(`/api/sequence/${themeSlug}/${video.id}/edl`));
+      const response = await fetch(resolveApiPath(`/api/sequence/${selectedTheme.theme_slug}/edl`));
       if (!response.ok) {
         throw new Error(`Request failed: ${response.status}`);
       }
@@ -50,11 +77,14 @@ const Step4FinalCut: React.FC<Step4Props> = ({ video, theme, themeSlug, refreshK
         cursor = timelineEnd;
         return {
           index: Number(entry.index ?? index + 1),
-          sourceVideoId: String(entry.source_video_id ?? entry.sourceVideoId ?? video.id),
+          sourceVideoId: String(entry.video_id ?? entry.source_video_id ?? entry.sourceVideoId ?? ''),
           tStart,
           tEnd,
           duration,
           reason: entry.reason ? String(entry.reason) : undefined,
+          clipId: entry.clip_id ?? entry.clipId ?? null,
+          thumbUrl: resolveStaticPath(entry.thumb_url ?? entry.thumbUrl ?? null),
+          score: typeof entry.score === 'number' ? entry.score : null,
           timelineStart,
           timelineEnd,
         };
@@ -64,17 +94,17 @@ const Step4FinalCut: React.FC<Step4Props> = ({ video, theme, themeSlug, refreshK
       setEdlError(error instanceof Error ? error.message : 'Failed to load EDL');
       setEdlItems([]);
     }
-  }, [themeSlug, video.id, apiBase]);
+  }, [selectedTheme, apiBase]);
 
   const fetchExportStatus = useCallback(async () => {
-    if (!themeSlug) {
+    if (!selectedTheme) {
       setExportStatus('idle');
       setExportProgress(0);
       setExportMessage(null);
       return;
     }
     try {
-      const response = await fetch(resolveApiPath(`/api/export/${themeSlug}/${video.id}`));
+      const response = await fetch(resolveApiPath(`/api/export/${selectedTheme.theme_slug}`));
       if (!response.ok) {
         throw new Error(`Request failed: ${response.status}`);
       }
@@ -91,7 +121,7 @@ const Step4FinalCut: React.FC<Step4Props> = ({ video, theme, themeSlug, refreshK
     } catch (error) {
       setExportMessage(error instanceof Error ? error.message : 'Export status error');
     }
-  }, [themeSlug, video.id, apiBase]);
+  }, [selectedTheme, apiBase]);
 
   useEffect(() => {
     fetchEdl();
@@ -103,51 +133,41 @@ const Step4FinalCut: React.FC<Step4Props> = ({ video, theme, themeSlug, refreshK
 
   useEffect(() => {
     setExportNonce(Date.now());
-  }, [themeSlug, video.id]);
+  }, [selectedTheme?.theme_slug]);
 
   useEffect(() => {
-    const source = new EventSource(resolveApiPath('/api/events'));
-    const handleMessage = (event: MessageEvent) => {
-      if (!event.data) {
+    setSelectedIndex(null);
+  }, [selectedTheme?.theme_slug]);
+
+  useEffect(() => {
+    if (!lastEvent || lastEvent.stage !== 'export') {
+      return;
+    }
+    if (selectedTheme) {
+      if (lastEvent.theme_slug && lastEvent.theme_slug !== selectedTheme.theme_slug) {
         return;
       }
-      try {
-        const message = JSON.parse(event.data);
-        if (message?.stage !== 'export') {
-          return;
-        }
-        if (theme && message.theme && message.theme !== theme) {
-          return;
-        }
-        if (message.video_id && message.video_id !== video.id) {
-          return;
-        }
-        const status = message.status as typeof exportStatus | undefined;
-        if (status) {
-          setExportStatus(status);
-        }
-        if (typeof message.progress === 'number') {
-          setExportProgress(Math.round(message.progress * 100));
-        }
-        if (typeof message.message === 'string' && message.message) {
-          setExportMessage(message.message);
-        }
-        if ((status === 'done' || status === 'cached') && message.result_path) {
-          setExportNonce(Date.now());
-        }
-      } catch (error) {
+      if (!lastEvent.theme_slug && lastEvent.theme && lastEvent.theme !== selectedTheme.theme) {
         return;
       }
-    };
-    source.onmessage = handleMessage;
-    source.onerror = () => {
-      setExportMessage('SSE connection lost');
-    };
-    return () => source.close();
-  }, [theme, video.id, apiBase]);
+    }
+    const status = lastEvent.status as typeof exportStatus | undefined;
+    if (status) {
+      setExportStatus(status);
+    }
+    if (typeof lastEvent.progress === 'number') {
+      setExportProgress(Math.round(lastEvent.progress * 100));
+    }
+    if (typeof lastEvent.message === 'string' && lastEvent.message) {
+      setExportMessage(lastEvent.message);
+    }
+    if ((status === 'done' || status === 'cached') && lastEvent.result_path) {
+      setExportNonce(Date.now());
+    }
+  }, [lastEvent, selectedTheme]);
 
   const handleExport = async () => {
-    if (!theme || !themeSlug) {
+    if (!selectedTheme) {
       setExportMessage('Missing theme selection.');
       return;
     }
@@ -159,9 +179,8 @@ const Step4FinalCut: React.FC<Step4Props> = ({ video, theme, themeSlug, refreshK
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          theme,
-          theme_slug: themeSlug,
-          video_id: video.id,
+          theme: selectedTheme.theme,
+          theme_slug: selectedTheme.theme_slug,
           force: false,
         }),
       });
@@ -186,13 +205,18 @@ const Step4FinalCut: React.FC<Step4Props> = ({ video, theme, themeSlug, refreshK
     }
     const anchor = document.createElement('a');
     anchor.href = `${outputBase}?download=true&t=${Date.now()}`;
-    anchor.download = `vidsynth_${themeSlug ?? 'theme'}_${video.id}.mp4`;
+    anchor.download = `vidsynth_${selectedTheme?.theme_slug ?? 'theme'}.mp4`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
   };
 
   const hasOutput = exportStatus === 'done' || exportStatus === 'cached';
+  const progressValue = exportStatus === 'queued' || exportStatus === 'running'
+    ? exportProgress
+    : hasOutput
+      ? 100
+      : 0;
 
   const totalDuration = useMemo(() => {
     if (edlItems.length === 0) {
@@ -227,26 +251,48 @@ const Step4FinalCut: React.FC<Step4Props> = ({ video, theme, themeSlug, refreshK
             <span className="text-xs text-rose-400">{exportMessage}</span>
           )}
         </div>
-        {hasOutput ? (
-          <button
-            onClick={handleDownload}
-            className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-lg shadow-indigo-500/20 transition-all"
-          >
-            <Download size={16} /> Download
-          </button>
-        ) : (
-          <button
-            onClick={handleExport}
-            disabled={exportStatus === 'queued' || exportStatus === 'running'}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-lg transition-all ${
-              exportStatus === 'queued' || exportStatus === 'running'
-                ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-500/20'
-            }`}
-          >
-            <Download size={16} /> Export Video
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <select
+              value={selectedTheme?.theme_slug || ''}
+              onChange={(event) => {
+                const theme = themes.find((item) => item.theme_slug === event.target.value);
+                if (theme) {
+                  onSelectTheme(theme);
+                }
+              }}
+              className="bg-slate-950 border border-slate-700 text-slate-200 text-xs rounded-md pl-3 pr-9 py-2 appearance-none focus:outline-none focus:border-cyan-500"
+            >
+              <option value="">Select Theme</option>
+              {themes.map((item) => (
+                <option key={item.theme_slug} value={item.theme_slug}>
+                  {item.theme}{item.has_export ? ' (exported)' : ''}
+                </option>
+              ))}
+            </select>
+            <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+          </div>
+          {hasOutput ? (
+            <button
+              onClick={handleDownload}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-lg shadow-indigo-500/20 transition-all"
+            >
+              <Download size={16} /> Download
+            </button>
+          ) : (
+            <button
+              onClick={handleExport}
+              disabled={!selectedTheme || exportStatus === 'queued' || exportStatus === 'running'}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-lg transition-all ${
+                !selectedTheme || exportStatus === 'queued' || exportStatus === 'running'
+                  ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                  : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-500/20'
+              }`}
+            >
+              <Download size={16} /> Export Video
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex flex-col xl:flex-row gap-6 h-[500px]">
@@ -268,10 +314,10 @@ const Step4FinalCut: React.FC<Step4Props> = ({ video, theme, themeSlug, refreshK
               <Scissors size={18} />
             </button>
             <div className="w-64 h-1 bg-slate-600 rounded-full overflow-hidden">
-              <div className="h-full bg-indigo-500" style={{ width: `${Math.min(exportProgress, 100)}%` }} />
+              <div className="h-full bg-indigo-500" style={{ width: `${Math.min(progressValue, 100)}%` }} />
             </div>
             <span className="text-xs font-mono text-white">
-              {Math.round(exportProgress)}%
+              {Math.round(progressValue)}%
             </span>
           </div>
         </div>
@@ -291,26 +337,36 @@ const Step4FinalCut: React.FC<Step4Props> = ({ video, theme, themeSlug, refreshK
             {edlItems.length === 0 && !edlError && (
               <div className="text-[10px] text-slate-500 p-2">No EDL data yet.</div>
             )}
-            {edlItems.map((item) => (
-              <div
-                key={`${item.sourceVideoId}-${item.index}`}
-                onClick={() => handleEdlClick(item)}
-                className={`flex items-center gap-3 p-3 rounded-lg transition-colors cursor-pointer group ${
-                  selectedIndex === item.index ? 'bg-slate-800' : 'hover:bg-slate-800'
-                }`}
-              >
-                <span className="text-xs font-mono text-slate-600 w-4">{item.index.toString().padStart(2, '0')}</span>
-                <div className="w-12 h-8 bg-slate-800 rounded overflow-hidden flex items-center justify-center">
-                  <span className="text-[9px] text-slate-500">CUT</span>
+            {edlItems.map((item) => {
+              const sourceVideo = videoMap.get(item.sourceVideoId);
+              const thumb = item.thumbUrl || sourceVideo?.thumbnail || '';
+              return (
+                <div
+                  key={`${item.sourceVideoId}-${item.index}`}
+                  onClick={() => handleEdlClick(item)}
+                  className={`flex items-center gap-3 p-3 rounded-lg transition-colors cursor-pointer group ${
+                    selectedIndex === item.index ? 'bg-slate-800' : 'hover:bg-slate-800'
+                  }`}
+                >
+                  <span className="text-xs font-mono text-slate-600 w-4">{item.index.toString().padStart(2, '0')}</span>
+                  <div className="w-12 h-8 bg-slate-800 rounded overflow-hidden flex items-center justify-center">
+                    {thumb ? (
+                      <img src={thumb} alt="EDL thumbnail" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-[9px] text-slate-500">CUT</span>
+                    )}
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs font-mono text-slate-300">
+                      {formatTime(item.tStart)} -&gt; {formatTime(item.tEnd)}
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                      Source: {sourceVideo?.name || item.sourceVideoId}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex flex-col">
-                  <span className="text-xs font-mono text-slate-300">
-                    {formatTime(item.tStart)} -&gt; {formatTime(item.tEnd)}
-                  </span>
-                  <span className="text-[10px] text-slate-500">Source: {video.name}</span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="p-3 border-t border-slate-800 bg-slate-950/30 text-center">

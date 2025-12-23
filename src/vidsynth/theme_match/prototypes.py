@@ -38,8 +38,9 @@ def _generate_with_deepseek(theme: str) -> Tuple[List[str], List[str]]:
 
     prompt = (
         "你是视频素材筛选助手。请针对主题 "
-        f"{theme!r} 给出 5 个简洁的英文正向提示和 4 个对照提示，这些提示会用来与视频素材进行匹配。对照提示是指与正向提示相反的提示。"
-        "避免视频素材中包含与主题不相关的内容。仅输出 JSON，格式：{" "\"positives\":[...],\"negatives\":[...]" "}."
+        f"{theme!r} 给出 5 个简洁的英文正向关键词和 4 个对照关键词。"
+        "关键词应为单词或短词组，避免完整句子。对照关键词用于排除与主题无关的内容。"
+        "仅输出 JSON，格式：{" "\"positives\":[...],\"negatives\":[...]" "}."
     )
     payload = {
         "model": DEEPSEEK_MODEL,
@@ -95,17 +96,17 @@ def _extract_content(data: dict) -> str | None:
 def _fallback_prototypes(theme: str) -> Tuple[List[str], List[str]]:
     base_theme = theme.strip().lower() or "scene"
     positives = [
-        f"a cinematic shot of {base_theme}",
-        f"people interacting with {base_theme}",
-        f"close up of {base_theme}",
-        f"wide angle view of {base_theme}",
-        f"natural lighting {base_theme} moment",
+        base_theme,
+        "closeup",
+        "detail",
+        "motion",
+        "product",
     ]
     negatives = [
-        "crowded city street",
-        "indoor office meeting",
-        "nighttime skyline",
-        "snow mountain landscape",
+        "city",
+        "office",
+        "night",
+        "snow",
     ]
     return positives, negatives
 

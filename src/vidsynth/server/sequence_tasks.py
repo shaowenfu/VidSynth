@@ -89,33 +89,21 @@ class SequenceTaskManager:
             targets = self._default_video_ids(resolved_slug)
         if not targets:
             return {"theme": theme, "theme_slug": resolved_slug, "status": "skipped"}
-
-        cached: List[str] = []
-        pending: List[str] = []
-        for video_id in targets:
-            if not force and self._edl_path(resolved_slug, video_id).exists():
-                cached.append(video_id)
-            else:
-                pending.append(video_id)
-
-        if cached:
+        if not force and self._edl_path(resolved_slug).exists():
             self._write_status(
                 theme=theme,
                 theme_slug=resolved_slug,
                 status="cached",
-                progress=1.0 if not pending else 0.0,
+                progress=1.0,
                 message="cached",
                 video_id=None,
             )
             self._publish_status(resolved_slug)
-
-        if not pending:
             return {
                 "theme": theme,
                 "theme_slug": resolved_slug,
                 "status": "cached",
-                "cached": cached,
-                "result_path": f"edl/{resolved_slug}/{cached[0]}/edl.json" if cached else None,
+                "result_path": f"edl/{resolved_slug}/edl.json",
             }
 
         with self._lock:
@@ -125,10 +113,10 @@ class SequenceTaskManager:
                 SequenceJob(
                     theme=theme,
                     theme_slug=resolved_slug,
-                    video_ids=pending,
+                    video_ids=targets,
                     force=force,
                     threshold_upper=threshold_upper,
-                    threshold_lower=threshold_lower,
+                    threshold_lower=threshold_lower if threshold_lower <= threshold_upper else threshold_upper,
                     min_seconds=min_seconds,
                     max_seconds=max_seconds,
                     merge_gap=merge_gap,
@@ -147,8 +135,7 @@ class SequenceTaskManager:
             "theme": theme,
             "theme_slug": resolved_slug,
             "status": "queued",
-            "queued": pending,
-            "cached": cached,
+            "queued": targets,
         }
 
     def _worker_loop(self) -> None:
@@ -192,8 +179,10 @@ class SequenceTaskManager:
             theme_value = job.theme or meta.get("theme") or job.theme_slug
             emb_model = meta.get("emb_model") or ""
             score_map = scores_payload.get("scores", {})
-            total = len(job.video_ids)
-            for index, video_id in enumerate(job.video_ids):
+            video_ids = job.video_ids or self._default_video_ids(job.theme_slug)
+            total = len(video_ids)
+            combined_edl: List[Dict[str, Any]] = []
+            for index, video_id in enumerate(video_ids):
                 current_video = video_id
                 clips = self._load_clips(video_id)
                 entries = score_map.get(video_id) or []
@@ -209,7 +198,7 @@ class SequenceTaskManager:
                     merge_gap=job.merge_gap,
                 )
                 result = sequencer.sequence(clips, scores)
-                self._write_edl(job.theme_slug, video_id, result.edl)
+                combined_edl.extend(self._format_edl_entries(video_id, result))
                 current_progress = (index + 1) / total if total else 1.0
                 self._write_status(
                     theme=theme_value,
@@ -220,16 +209,13 @@ class SequenceTaskManager:
                     video_id=video_id,
                 )
                 self._publish_status(job.theme_slug)
-                done_event = {
-                    "stage": "sequence",
-                    "theme": theme_value,
-                    "video_id": video_id,
-                    "status": "done",
-                    "progress": current_progress,
-                    "message": "done",
-                    "result_path": f"edl/{job.theme_slug}/{video_id}/edl.json",
-                }
-                self._broadcaster.publish(done_event)
+            if not combined_edl:
+                combined_edl = self._fallback_edl(score_map)
+                if combined_edl:
+                    logger.info("RESULT fallback_topk count=%s", len(combined_edl))
+            if not combined_edl:
+                logger.info("RESULT empty_edl theme=%s", job.theme_slug)
+            self._write_edl(job.theme_slug, combined_edl)
             self._write_status(
                 theme=theme_value,
                 theme_slug=job.theme_slug,
@@ -239,6 +225,17 @@ class SequenceTaskManager:
                 video_id=None,
             )
             self._publish_status(job.theme_slug)
+            self._broadcaster.publish(
+                {
+                    "stage": "sequence",
+                    "theme": theme_value,
+                    "video_id": None,
+                    "status": "done",
+                    "progress": 1.0,
+                    "message": "done",
+                    "result_path": f"edl/{job.theme_slug}/edl.json",
+                }
+            )
         except Exception as exc:
             self._write_status(
                 theme=job.theme,
@@ -310,16 +307,88 @@ class SequenceTaskManager:
             )
         return scores
 
-    def _edl_path(self, theme_slug: str, video_id: str) -> Path:
-        return EDL_DIR / theme_slug / video_id / "edl.json"
+    def _format_edl_entries(self, video_id: str, result: Any) -> List[Dict[str, Any]]:
+        selected = [clip for clip in result.selected_clips if clip.video_id == video_id]
+        selected.sort(key=lambda clip: clip.t_start)
+        entries: List[Dict[str, Any]] = []
+        for item in result.edl:
+            clip_id = self._pick_clip_id(selected, item.t_start, item.t_end)
+            thumb_url = self._clip_thumb_url(video_id, clip_id)
+            entries.append(
+                {
+                    "video_id": item.video_id,
+                    "t_start": item.t_start,
+                    "t_end": item.t_end,
+                    "reason": item.reason,
+                    "clip_id": clip_id,
+                    "thumb_url": thumb_url,
+                }
+            )
+        return entries
 
-    def _write_edl(self, theme_slug: str, video_id: str, items: Iterable[Any]) -> None:
-        path = self._edl_path(theme_slug, video_id)
+    def _fallback_edl(self, score_map: Dict[str, Any], *, limit: int = 8) -> List[Dict[str, Any]]:
+        candidates: List[Dict[str, Any]] = []
+        for video_id, entries in score_map.items():
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                score = entry.get("score")
+                try:
+                    score_value = float(score)
+                except (TypeError, ValueError):
+                    continue
+                candidates.append(
+                    {
+                        "video_id": video_id,
+                        "clip_id": int(entry.get("clip_id", 0)),
+                        "t_start": float(entry.get("t_start", 0.0)),
+                        "t_end": float(entry.get("t_end", 0.0)),
+                        "score": score_value,
+                    }
+                )
+        if not candidates:
+            return []
+        candidates.sort(key=lambda item: item["score"], reverse=True)
+        selected = candidates[:limit]
+        edl: List[Dict[str, Any]] = []
+        for entry in selected:
+            clip_id = entry.get("clip_id")
+            video_id = entry.get("video_id", "")
+            edl.append(
+                {
+                    "video_id": video_id,
+                    "t_start": entry.get("t_start", 0.0),
+                    "t_end": entry.get("t_end", 0.0),
+                    "reason": "fallback_topk",
+                    "clip_id": clip_id,
+                    "thumb_url": self._clip_thumb_url(video_id, clip_id),
+                    "score": entry.get("score"),
+                }
+            )
+        return edl
+
+    @staticmethod
+    def _pick_clip_id(selected: List[Clip], t_start: float, t_end: float) -> int | None:
+        for clip in selected:
+            if clip.t_start >= t_start - 1e-3 and clip.t_end <= t_end + 1e-3:
+                return clip.clip_id
+        return selected[0].clip_id if selected else None
+
+    @staticmethod
+    def _clip_thumb_url(video_id: str, clip_id: int | None) -> str | None:
+        if clip_id is None:
+            return None
+        return f"segmentation/{video_id}/thumbs/{clip_id}.jpg"
+
+    def _edl_path(self, theme_slug: str) -> Path:
+        return EDL_DIR / theme_slug / "edl.json"
+
+    def _write_edl(self, theme_slug: str, items: Iterable[Dict[str, Any]]) -> None:
+        path = self._edl_path(theme_slug)
         path.parent.mkdir(parents=True, exist_ok=True)
-        payload = [
-            {"video_id": item.video_id, "t_start": item.t_start, "t_end": item.t_end, "reason": item.reason}
-            for item in items
-        ]
+        payload = list(items)
         self._atomic_write_json(path, payload)
 
     def _status_path(self, theme_slug: str) -> Path:
@@ -371,11 +440,12 @@ class SequenceTaskManager:
         theme_slug = payload.get("theme_slug")
         status = payload.get("status")
         result_path = None
-        if status in {"done", "cached"} and theme_slug and payload.get("video_id"):
-            result_path = f"edl/{theme_slug}/{payload['video_id']}/edl.json"
+        if status in {"done", "cached"} and theme_slug:
+            result_path = f"edl/{theme_slug}/edl.json"
         return {
             "stage": "sequence",
             "theme": theme,
+            "theme_slug": theme_slug,
             "video_id": payload.get("video_id"),
             "status": status,
             "progress": payload.get("progress"),

@@ -6,11 +6,12 @@ import Step4FinalCut from './components/Step4FinalCut';
 import ClusterSandbox from './components/ClusterSandbox';
 import ProjectConfigModal from './components/ProjectConfigModal';
 import LogConsoleModal from './components/LogConsoleModal';
-import { AssetRecord, VideoResource } from './types';
+import { AssetRecord, VideoResource, ThemeSummary } from './types';
 import { Zap, LayoutGrid, Box, Settings2, Terminal } from 'lucide-react';
-import { LogProvider } from './context/LogContext';
+import { LogProvider, useLogStore } from './context/LogContext';
 
 const AppContent: React.FC = () => {
+  const { lastEvent } = useLogStore();
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null);
   const [videos, setVideos] = useState<VideoResource[]>([]);
   const [currentView, setCurrentView] = useState<'pipeline' | 'sandbox'>('pipeline');
@@ -18,10 +19,13 @@ const AppContent: React.FC = () => {
   const [isLogConsoleOpen, setIsLogConsoleOpen] = useState(false);
   const [isLoadingAssets, setIsLoadingAssets] = useState(true);
   const [assetsError, setAssetsError] = useState<string | null>(null);
-  const [seekRequest, setSeekRequest] = useState<{ videoId: string; time: number } | null>(null);
+  const [seekRequest, setSeekRequest] = useState<{ videoId: string; time: number; end?: number } | null>(null);
   const [activeTheme, setActiveTheme] = useState<string | null>(null);
   const [activeThemeSlug, setActiveThemeSlug] = useState<string | null>(null);
   const [sequenceRefreshKey, setSequenceRefreshKey] = useState(0);
+  const [themes, setThemes] = useState<ThemeSummary[]>([]);
+  const [isLoadingThemes, setIsLoadingThemes] = useState(false);
+  const [themesError, setThemesError] = useState<string | null>(null);
 
   const apiBase = import.meta.env.VITE_API_BASE || '';
 
@@ -76,28 +80,77 @@ const AppContent: React.FC = () => {
     }
   }, [apiBase]);
 
+  const refreshThemes = useCallback(async () => {
+    setIsLoadingThemes(true);
+    setThemesError(null);
+    try {
+      const response = await fetch(`${apiBase}/api/theme/themes`);
+      if (!response.ok) {
+        throw new Error(`Request failed: ${response.status}`);
+      }
+      const payload = (await response.json()) as ThemeSummary[];
+      setThemes(payload);
+    } catch (error) {
+      setThemesError(error instanceof Error ? error.message : 'Unknown error');
+    } finally {
+      setIsLoadingThemes(false);
+    }
+  }, [apiBase]);
+
   useEffect(() => {
     refreshAssets();
   }, [refreshAssets]);
+
+  useEffect(() => {
+    refreshThemes();
+  }, [refreshThemes]);
 
   // Derive active video object
   const activeVideo = activeVideoId
     ? videos.find((v) => v.id === activeVideoId)
     : undefined;
 
-  const handleRequestSeek = (videoId: string, time: number) => {
+  const handleRequestSeek = (videoId: string, time: number, end?: number) => {
     setActiveVideoId(videoId);
-    setSeekRequest({ videoId, time });
+    setSeekRequest({ videoId, time, end });
   };
 
   const handleThemeResolved = (theme: string, themeSlug: string | null) => {
     setActiveTheme(theme);
     setActiveThemeSlug(themeSlug);
+    refreshThemes();
   };
 
   const handleSequenceComplete = () => {
     setSequenceRefreshKey((prev) => prev + 1);
+    refreshThemes();
   };
+
+  const handleSelectTheme = (summary: ThemeSummary) => {
+    setActiveTheme(summary.theme);
+    setActiveThemeSlug(summary.theme_slug);
+  };
+
+  useEffect(() => {
+    if (!lastEvent) {
+      return;
+    }
+    const scheduleRefresh = (action: () => void) => {
+      window.setTimeout(action, 300);
+    };
+    if (lastEvent?.stage === 'segment' && (lastEvent.status === 'done' || lastEvent.status === 'cached')) {
+      scheduleRefresh(() => refreshAssets());
+    }
+    if (lastEvent?.stage === 'theme_match' && (lastEvent.status === 'done' || lastEvent.status === 'cached')) {
+      scheduleRefresh(() => refreshThemes());
+    }
+    if (lastEvent?.stage === 'sequence' && (lastEvent.status === 'done' || lastEvent.status === 'cached')) {
+      scheduleRefresh(() => refreshThemes());
+    }
+    if (lastEvent?.stage === 'export' && (lastEvent.status === 'done' || lastEvent.status === 'cached')) {
+      scheduleRefresh(() => refreshThemes());
+    }
+  }, [lastEvent, refreshAssets, refreshThemes]);
 
   return (
     <div className="h-screen bg-[#050505] text-slate-200 font-sans p-4 flex items-center justify-center overflow-hidden">
@@ -190,16 +243,18 @@ const AppContent: React.FC = () => {
                           onThemeResolved={handleThemeResolved}
                         />
                         <Step3Log
-                          logs={[]}
-                          theme={activeTheme}
-                          themeSlug={activeThemeSlug}
-                          videoId={activeVideo?.id ?? null}
+                          themes={themes}
+                          activeThemeSlug={activeThemeSlug}
+                          onSelectTheme={handleSelectTheme}
                           onSequenceComplete={handleSequenceComplete}
+                          isLoadingThemes={isLoadingThemes}
+                          themesError={themesError}
                         />
                         <Step4FinalCut
-                          video={activeVideo}
-                          theme={activeTheme}
-                          themeSlug={activeThemeSlug}
+                          videos={videos}
+                          themes={themes}
+                          activeThemeSlug={activeThemeSlug}
+                          onSelectTheme={handleSelectTheme}
                           refreshKey={sequenceRefreshKey}
                         />
                       </div>

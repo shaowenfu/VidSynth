@@ -208,6 +208,7 @@ class ThemeTaskManager:
                     video_id=video_id,
                 )
                 self._publish_status(job.theme_slug)
+            self._normalize_scores(scores_payload)
             scores_payload["meta"] = {
                 "theme": job.theme,
                 "theme_slug": job.theme_slug,
@@ -311,6 +312,30 @@ class ThemeTaskManager:
         finally:
             capture.release()
 
+    def _normalize_scores(self, payload: Dict[str, Any]) -> None:
+        score_entries: List[Dict[str, Any]] = []
+        for entries in payload.get("scores", {}).values():
+            if isinstance(entries, list):
+                score_entries.extend([entry for entry in entries if isinstance(entry, dict)])
+        if not score_entries:
+            return
+        raw_scores = [float(entry.get("score", 0.0)) for entry in score_entries]
+        min_score = min(raw_scores)
+        max_score = max(raw_scores)
+        if max_score == min_score:
+            for entry in score_entries:
+                entry["score_raw"] = float(entry.get("score", 0.0))
+                entry["score"] = 0.5
+        else:
+            scale = max_score - min_score
+            for entry in score_entries:
+                raw = float(entry.get("score", 0.0))
+                entry["score_raw"] = raw
+                entry["score"] = (raw - min_score) / scale
+        meta = payload.get("meta") or {}
+        meta["score_norm"] = {"method": "minmax", "min": min_score, "max": max_score}
+        payload["meta"] = meta
+
     def _status_path(self, theme_slug: str) -> Path:
         return THEMES_DIR / theme_slug / "status.json"
 
@@ -373,6 +398,7 @@ class ThemeTaskManager:
         return {
             "stage": "theme_match",
             "theme": theme,
+            "theme_slug": theme_slug,
             "video_id": payload.get("video_id"),
             "status": status,
             "progress": payload.get("progress"),

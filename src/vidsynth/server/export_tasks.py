@@ -24,7 +24,7 @@ from .workspace import EDL_DIR, EXPORTS_DIR, VIDEOS_DIR, ensure_workspace_layout
 class ExportJob:
     theme: str
     theme_slug: str
-    video_id: str
+    video_id: Optional[str]
     force: bool
     edl_path: Optional[str]
     source_video_path: Optional[str]
@@ -34,7 +34,7 @@ class ExportJob:
 class ExportStatus:
     theme: str
     theme_slug: str
-    video_id: str
+    video_id: Optional[str]
     status: str
     progress: float
     message: str
@@ -70,18 +70,16 @@ class ExportTaskManager:
         *,
         theme: str,
         theme_slug: Optional[str],
-        video_id: str,
+        video_id: Optional[str],
         force: bool,
         edl_path: Optional[str] = None,
         source_video_path: Optional[str] = None,
     ) -> Dict[str, Any]:
         ensure_workspace_layout()
-        if not video_id:
-            return {"theme": theme, "theme_slug": theme_slug, "status": "skipped", "message": "missing video_id"}
         resolved_slug = theme_slug or _slugify(theme)
         if force:
-            self._clear_artifacts(resolved_slug, video_id)
-        output_path = self._output_path(resolved_slug, video_id)
+            self._clear_artifacts(resolved_slug)
+        output_path = self._output_path(resolved_slug)
         if output_path.exists() and not force:
             self._write_status(
                 theme=theme,
@@ -91,20 +89,17 @@ class ExportTaskManager:
                 progress=1.0,
                 message="cached",
             )
-            self._publish_status(resolved_slug, video_id)
+            self._publish_status(resolved_slug)
             return {
                 "theme": theme,
                 "theme_slug": resolved_slug,
-                "video_id": video_id,
                 "status": "cached",
-                "result_path": f"exports/{resolved_slug}/{video_id}/output.mp4",
+                "result_path": f"exports/{resolved_slug}/output.mp4",
             }
         with self._lock:
-            if self._active and self._active.theme_slug == resolved_slug and self._active.video_id == video_id:
+            if self._active and self._active.theme_slug == resolved_slug:
                 return {"theme": theme, "theme_slug": resolved_slug, "video_id": video_id, "status": "skipped"}
-            if any(
-                job.theme_slug == resolved_slug and job.video_id == video_id for job in self._queue
-            ):
+            if any(job.theme_slug == resolved_slug for job in self._queue):
                 return {"theme": theme, "theme_slug": resolved_slug, "video_id": video_id, "status": "skipped"}
             self._queue.append(
                 ExportJob(
@@ -124,7 +119,7 @@ class ExportTaskManager:
                 progress=0.0,
                 message="queued",
             )
-        self._publish_status(resolved_slug, video_id)
+        self._publish_status(resolved_slug)
         return {"theme": theme, "theme_slug": resolved_slug, "video_id": video_id, "status": "queued"}
 
     def _worker_loop(self) -> None:
@@ -153,13 +148,10 @@ class ExportTaskManager:
                 progress=0.05,
                 message="loading edl",
             )
-            self._publish_status(job.theme_slug, job.video_id)
+            self._publish_status(job.theme_slug)
             edl_path = self._resolve_edl_path(job)
             if not edl_path.exists():
                 raise FileNotFoundError(f"edl not found: {edl_path}")
-            source_video = self._resolve_source_video(job)
-            if not source_video:
-                raise FileNotFoundError(f"source video not found for {job.video_id}")
             exporter = Exporter(self._config)
             items = exporter.load_edl(edl_path)
             self._write_status(
@@ -170,9 +162,14 @@ class ExportTaskManager:
                 progress=0.4,
                 message="exporting",
             )
-            self._publish_status(job.theme_slug, job.video_id)
-            output_path = self._output_path(job.theme_slug, job.video_id)
-            exporter.export(items, source_video=source_video, output_path=output_path)
+            self._publish_status(job.theme_slug)
+            output_path = self._output_path(job.theme_slug)
+            if job.source_video_path:
+                source_video = Path(job.source_video_path)
+                exporter.export(items, source_video=source_video, output_path=output_path)
+            else:
+                source_videos = self._resolve_source_videos(items)
+                exporter.export(items, source_videos=source_videos, output_path=output_path)
             self._write_status(
                 theme=job.theme,
                 theme_slug=job.theme_slug,
@@ -181,7 +178,7 @@ class ExportTaskManager:
                 progress=1.0,
                 message="done",
             )
-            self._publish_status(job.theme_slug, job.video_id)
+            self._publish_status(job.theme_slug)
         except Exception as exc:
             self._write_status(
                 theme=job.theme,
@@ -191,32 +188,35 @@ class ExportTaskManager:
                 progress=0.0,
                 message=str(exc),
             )
-            self._publish_status(job.theme_slug, job.video_id)
+            self._publish_status(job.theme_slug)
 
     def _resolve_edl_path(self, job: ExportJob) -> Path:
         if job.edl_path:
             return Path(job.edl_path)
-        return EDL_DIR / job.theme_slug / job.video_id / "edl.json"
+        return EDL_DIR / job.theme_slug / "edl.json"
 
-    def _resolve_source_video(self, job: ExportJob) -> Optional[Path]:
-        if job.source_video_path:
-            return Path(job.source_video_path)
+    def _resolve_source_videos(self, items: list) -> Dict[str, Path]:
         if not VIDEOS_DIR.exists():
-            return None
+            raise FileNotFoundError("videos directory not found")
+        wanted = {item.video_id for item in items if getattr(item, "video_id", None)}
+        mapping: Dict[str, Path] = {}
         for path in VIDEOS_DIR.iterdir():
-            if path.is_file() and path.stem == job.video_id:
-                return path
-        return None
+            if path.is_file() and path.stem in wanted:
+                mapping[path.stem] = path
+        missing = wanted - set(mapping.keys())
+        if missing:
+            raise FileNotFoundError(f"source videos missing: {sorted(missing)}")
+        return mapping
 
-    def _output_path(self, theme_slug: str, video_id: str) -> Path:
-        return EXPORTS_DIR / theme_slug / video_id / "output.mp4"
+    def _output_path(self, theme_slug: str) -> Path:
+        return EXPORTS_DIR / theme_slug / "output.mp4"
 
-    def _status_path(self, theme_slug: str, video_id: str) -> Path:
-        return EXPORTS_DIR / theme_slug / video_id / "status.json"
+    def _status_path(self, theme_slug: str) -> Path:
+        return EXPORTS_DIR / theme_slug / "status.json"
 
-    def _clear_artifacts(self, theme_slug: str, video_id: str) -> None:
-        output_path = self._output_path(theme_slug, video_id)
-        status_path = self._status_path(theme_slug, video_id)
+    def _clear_artifacts(self, theme_slug: str) -> None:
+        output_path = self._output_path(theme_slug)
+        status_path = self._status_path(theme_slug)
         if output_path.exists():
             output_path.unlink()
         if status_path.exists():
@@ -227,7 +227,7 @@ class ExportTaskManager:
         *,
         theme: str,
         theme_slug: str,
-        video_id: str,
+        video_id: Optional[str],
         status: str,
         progress: float,
         message: str,
@@ -243,12 +243,12 @@ class ExportTaskManager:
             message=message,
             updated_at=now,
         ).to_dict()
-        path = self._status_path(theme_slug, video_id)
+        path = self._status_path(theme_slug)
         path.parent.mkdir(parents=True, exist_ok=True)
         self._atomic_write_json(path, payload)
 
-    def _read_status(self, theme_slug: str, video_id: str) -> Optional[Dict[str, Any]]:
-        path = self._status_path(theme_slug, video_id)
+    def _read_status(self, theme_slug: str, _video_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        path = self._status_path(theme_slug)
         if not path.exists():
             return None
         try:
@@ -256,8 +256,8 @@ class ExportTaskManager:
         except json.JSONDecodeError:
             return None
 
-    def _publish_status(self, theme_slug: str, video_id: str) -> None:
-        status = self._read_status(theme_slug, video_id)
+    def _publish_status(self, theme_slug: str) -> None:
+        status = self._read_status(theme_slug, None)
         if not status:
             return
         self._broadcaster.publish(self._status_to_event(status))
@@ -269,11 +269,12 @@ class ExportTaskManager:
         video_id = payload.get("video_id")
         status = payload.get("status")
         result_path = None
-        if status in {"done", "cached"} and theme_slug and video_id:
-            result_path = f"exports/{theme_slug}/{video_id}/output.mp4"
+        if status in {"done", "cached"} and theme_slug:
+            result_path = f"exports/{theme_slug}/output.mp4"
         return {
             "stage": "export",
             "theme": theme,
+            "theme_slug": theme_slug,
             "video_id": video_id,
             "status": status,
             "progress": payload.get("progress"),

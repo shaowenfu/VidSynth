@@ -63,17 +63,30 @@ class Exporter:
             )
         return items
 
-    def export(self, edl: Sequence[EDLItemPayload], *, source_video: Path, output_path: Path) -> None:
+    def export(
+        self,
+        edl: Sequence[EDLItemPayload],
+        *,
+        source_video: Path | None = None,
+        source_videos: dict[str, Path] | None = None,
+        output_path: Path,
+    ) -> None:
         """执行导出：按 EDL 裁剪并拼接到一个 MP4。
 
-        当前 MVP 简化为单源视频：`source_video` 指向唯一输入；未来多源需在 EDL 中携带路径并为每源建立输入流。
+        若提供 `source_videos`，则按 `video_id` 解析多源输入；否则使用单源 `source_video`。
         """
         
         logger.info("Starting video export. EDL items: %d, Output: %s", len(edl), output_path)
 
-        # 验证输入文件存在
-        if not source_video.exists():
-            raise FileNotFoundError(f"源视频文件不存在: {source_video}")
+        if source_videos is None:
+            if source_video is None:
+                raise ValueError("必须提供 source_video 或 source_videos")
+            if not source_video.exists():
+                raise FileNotFoundError(f"源视频文件不存在: {source_video}")
+        else:
+            for vid, path in source_videos.items():
+                if not path.exists():
+                    raise FileNotFoundError(f"源视频文件不存在: {vid} -> {path}")
         
         # 验证输出目录可写
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -90,7 +103,13 @@ class Exporter:
                     continue
 
                 # 单段输入，使用 -ss/-to 限定解码窗口，减轻资源占用
-                segment_input = ffmpeg.input(str(source_video), ss=item.t_start, to=item.t_end)
+                if source_videos is None:
+                    src_path = source_video
+                else:
+                    src_path = source_videos.get(item.video_id)
+                    if not src_path:
+                        raise FileNotFoundError(f"源视频缺失: {item.video_id}")
+                segment_input = ffmpeg.input(str(src_path), ss=item.t_start, to=item.t_end)
                 v = segment_input.video.setpts("PTS-STARTPTS")
                 a = segment_input.audio
 

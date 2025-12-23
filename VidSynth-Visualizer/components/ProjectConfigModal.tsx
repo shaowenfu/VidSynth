@@ -1,6 +1,6 @@
 
-import React, { useRef, useState } from 'react';
-import { Upload, FileJson, CheckCircle, Plus, Database, X } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Upload, FileJson, CheckCircle, Plus, Database, X, Scissors } from 'lucide-react';
 import { VideoResource } from '../types';
 
 interface ProjectConfigModalProps {
@@ -18,6 +18,9 @@ const ProjectConfigModal: React.FC<ProjectConfigModalProps> = ({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [selectedSegmentIds, setSelectedSegmentIds] = useState<string[]>([]);
+  const [isSegmenting, setIsSegmenting] = useState(false);
+  const [segmentError, setSegmentError] = useState<string | null>(null);
   const apiBase = import.meta.env.VITE_API_BASE || '';
 
   const handleAddSources = () => {
@@ -56,6 +59,33 @@ const ProjectConfigModal: React.FC<ProjectConfigModalProps> = ({
     await onRefreshAssets();
   };
 
+  useEffect(() => {
+    setSelectedSegmentIds((prev) => prev.filter((id) => videos.some((video) => video.id === id)));
+  }, [videos]);
+
+  const handleSegmentRun = async (force: boolean) => {
+    if (isUploading || isSegmenting || selectedSegmentIds.length === 0) {
+      return;
+    }
+    setIsSegmenting(true);
+    setSegmentError(null);
+    try {
+      const response = await fetch(`${apiBase}/api/segment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ video_ids: selectedSegmentIds, force }),
+      });
+      if (!response.ok) {
+        throw new Error(`Segmentation failed: ${response.status}`);
+      }
+      await onRefreshAssets();
+    } catch (error) {
+      setSegmentError(error instanceof Error ? error.message : 'Segmentation failed');
+    } finally {
+      setIsSegmenting(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -83,13 +113,41 @@ const ProjectConfigModal: React.FC<ProjectConfigModalProps> = ({
                     <span className="w-2 h-2 bg-cyan-500 rounded-full"></span>
                     Video Resource Pool ({videos.length})
                     </span>
-                    <button
-                      onClick={handleAddSources}
-                      className="flex items-center gap-1 text-cyan-400 hover:text-cyan-300 bg-cyan-950/30 px-3 py-1.5 rounded transition-colors border border-cyan-900/50 disabled:opacity-40"
-                      disabled={isUploading}
-                    >
-                    <Upload size={12} /> {isUploading ? 'Uploading...' : 'Add Sources'}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setSelectedSegmentIds(videos.map((video) => video.id))}
+                        className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded transition-colors border border-slate-700"
+                      >
+                        Select All
+                      </button>
+                      <button
+                        onClick={() => setSelectedSegmentIds([])}
+                        className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded transition-colors border border-slate-700"
+                      >
+                        Clear
+                      </button>
+                      <button
+                        onClick={() => handleSegmentRun(false)}
+                        disabled={isSegmenting || selectedSegmentIds.length === 0}
+                        className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 bg-emerald-950/30 px-3 py-1.5 rounded transition-colors border border-emerald-900/50 disabled:opacity-40"
+                      >
+                        <Scissors size={12} /> {isSegmenting ? 'Segmenting...' : `Segment (${selectedSegmentIds.length})`}
+                      </button>
+                      <button
+                        onClick={() => handleSegmentRun(true)}
+                        disabled={isSegmenting || selectedSegmentIds.length === 0}
+                        className="flex items-center gap-1 text-rose-300 hover:text-rose-200 bg-rose-950/30 px-3 py-1.5 rounded transition-colors border border-rose-900/50 disabled:opacity-40"
+                      >
+                        Force
+                      </button>
+                      <button
+                        onClick={handleAddSources}
+                        className="flex items-center gap-1 text-cyan-400 hover:text-cyan-300 bg-cyan-950/30 px-3 py-1.5 rounded transition-colors border border-cyan-900/50 disabled:opacity-40"
+                        disabled={isUploading}
+                      >
+                      <Upload size={12} /> {isUploading ? 'Uploading...' : 'Add Sources'}
+                      </button>
+                    </div>
                 </div>
 
                 <input
@@ -111,6 +169,23 @@ const ProjectConfigModal: React.FC<ProjectConfigModalProps> = ({
                             : 'opacity-70 hover:opacity-100 hover:scale-[1.02]'
                         }`}
                     >
+                        <label
+                          className="absolute top-2 left-2 z-10 flex items-center gap-1 text-[10px] bg-black/50 px-1.5 py-0.5 rounded text-slate-200"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedSegmentIds.includes(vid.id)}
+                            onChange={() =>
+                              setSelectedSegmentIds((prev) =>
+                                prev.includes(vid.id)
+                                  ? prev.filter((id) => id !== vid.id)
+                                  : [...prev, vid.id]
+                              )
+                            }
+                          />
+                          <span>Select</span>
+                        </label>
                         <div className="aspect-video bg-slate-800 rounded-lg overflow-hidden relative shadow-md">
                             <img src={vid.thumbnail} alt={vid.name} className="w-full h-full object-cover" />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-transparent" />
@@ -158,6 +233,11 @@ const ProjectConfigModal: React.FC<ProjectConfigModalProps> = ({
                 {uploadError && (
                   <div className="mt-3 text-[11px] text-rose-400">
                     {uploadError}
+                  </div>
+                )}
+                {segmentError && (
+                  <div className="mt-2 text-[11px] text-rose-400">
+                    {segmentError}
                   </div>
                 )}
             </section>

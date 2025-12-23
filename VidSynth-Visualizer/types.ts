@@ -74,8 +74,21 @@ export interface EdlEntry {
   tEnd: number;
   duration: number;
   reason?: string;
+  clipId?: string | number;
+  thumbUrl?: string | null;
+  score?: number | null;
   timelineStart?: number;
   timelineEnd?: number;
+}
+
+export interface ThemeSummary {
+  theme_slug: string;
+  theme: string;
+  created_at?: string | null;
+  video_ids: string[];
+  has_scores: boolean;
+  has_edl: boolean;
+  has_export: boolean;
 }
 
 export interface AssetRecord {
