@@ -10,7 +10,9 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import normalize
 from sklearn.metrics import pairwise_distances_argmin_min
 
-from vidsynth.core.datamodels import Clip
+from vidsynth.core import Clip, get_logger
+
+logger = get_logger(__name__)
 
 @dataclass
 class ClusterResult:
@@ -45,7 +47,10 @@ class ClusterEngine:
             List of ClusterResult objects.
         """
         if not clips:
+            logger.warning("No clips provided for clustering.")
             return []
+
+        logger.info("Starting clustering. Input clips: %d, Max clusters: %d", len(clips), max_clusters)
 
         # 1. Prepare data
         # Extract embeddings
@@ -60,6 +65,8 @@ class ClusterEngine:
         # Strategy: K = min(N/5, max_clusters). If N < 5, K=1.
         k = min(int(N / 5), max_clusters)
         k = max(1, k) # Ensure at least 1 cluster
+
+        logger.debug("Determined K=%d for clustering.", k)
 
         # 3. Run KMeans
         kmeans = KMeans(n_clusters=k, random_state=self.random_state, n_init=10)
@@ -102,4 +109,5 @@ class ClusterEngine:
                 center_embedding=kmeans.cluster_centers_[cluster_id].tolist()
             ))
             
+        logger.info("Clustering finished. Generated %d clusters.", len(results))
         return results

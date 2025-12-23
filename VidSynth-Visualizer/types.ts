@@ -1,3 +1,6 @@
+export type LogLevel = 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR';
+export type LogStage = 'segmentation' | 'matching' | 'sequencing' | 'export' | 'clustering' | 'system' | 'general';
+
 export interface Segment {
   id: string;
   start: number; // seconds
@@ -47,9 +50,12 @@ export interface ClusterPoint {
 
 export interface LogEntry {
   id: string;
-  type: 'filter' | 'merge' | 'result' | 'info' | 'error';
+  timestamp: string;    // ISO 8601
+  level: LogLevel;
+  stage: LogStage;
   message: string;
-  timestamp: string;
+  context?: Record<string, any>; // Extra context data
+  module?: string;      // Source module
 }
 
 export interface EdlItem {

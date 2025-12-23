@@ -9,13 +9,15 @@ from typing import Callable, List, Sequence
 
 import numpy as np
 
-from vidsynth.core import Clip, PipelineConfig
+from vidsynth.core import Clip, PipelineConfig, get_logger
 from vidsynth.core.config import SegmentConfig
 
 from .embedding import DEFAULT_EMBEDDER, EmbeddingBackend, create_embedder
 from .loader import estimate_keyframe_count, iter_keyframes
 from .shot_detector import detect_shots
 from .types import EmbeddedSample
+
+logger = get_logger(__name__)
 
 
 @dataclass(slots=True)
@@ -37,16 +39,20 @@ def segment_video(
 ) -> SegmentResult:
     """主入口：读取视频 -> 采样 -> embedding -> 镜头切分 -> Clip 列表。"""
 
+    logger.info("Starting video segmentation: %s, path: %s", video_id, video_path)
     seg_cfg = config.segment
     embedder = embedder or create_embedder(config.embedding)
+    logger.debug("Embedding model loaded: %s", embedder.emb_model_name)
 
     samples: List[EmbeddedSample] = []
     total_samples = 0
     step = 0
     if progress_callback is not None:
         try:
-            total_samples, _ = estimate_keyframe_count(video_path, seg_cfg.fps_keyframe)
-        except Exception:
+            total_samples, fps = estimate_keyframe_count(video_path, seg_cfg.fps_keyframe)
+            logger.info("Video loaded successfully, estimated frames: %d, FPS: %.2f", total_samples, fps)
+        except Exception as e:
+            logger.warning("Failed to estimate keyframe count: %s", e)
             total_samples = 0
         step = max(total_samples // 100, 1) if total_samples else 0
 
@@ -60,6 +66,7 @@ def segment_video(
                 progress_callback(min(processed / total_samples, 1.0))
 
     if not samples:
+        logger.warning("No samples generated for video: %s", video_id)
         return SegmentResult(video_id=video_id, clips=[], discarded_segments=0)
 
     boundaries = detect_shots(samples, seg_cfg)
@@ -71,6 +78,7 @@ def segment_video(
         emb_model_name=embedder.emb_model_name,
     )
     discarded = max(0, len(boundaries) - len(clips))
+    logger.info("Segmentation finished. Generated %d clips, discarded %d.", len(clips), discarded)
     if progress_callback is not None:
         progress_callback(1.0)
     return SegmentResult(video_id=video_id, clips=clips, discarded_segments=discarded)
@@ -102,6 +110,11 @@ def build_clips_from_samples(
                 continue
             duration = _duration(chunk)
             if duration < seg_cfg.min_clip_seconds and not seg_cfg.keep_last_short_segment:
+                logger.warning(
+                    "Clip %d duration (%.2fs) < min (%.2fs), dropped.", 
+                    clip_id, duration, seg_cfg.min_clip_seconds,
+                    extra={"context": {"clip_id": clip_id, "duration": duration, "min": seg_cfg.min_clip_seconds}}
+                )
                 continue
             clip = _create_clip(
                 video_id=video_id,

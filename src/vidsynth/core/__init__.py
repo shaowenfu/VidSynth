@@ -2,7 +2,7 @@
 
 from .datamodels import Clip, ThemePrototype, ThemeQuery, ThemeScore
 from .config import PipelineConfig, load_config
-from .logging_utils import get_logger, setup_logging
+from .logging_utils import get_logger, setup_logging, attach_sse_handler, get_stage_name
 from .paths import resolve_assets_root
 
 __all__ = [
@@ -14,5 +14,7 @@ __all__ = [
     "load_config",
     "get_logger",
     "setup_logging",
+    "attach_sse_handler",
+    "get_stage_name",
     "resolve_assets_root",
 ]

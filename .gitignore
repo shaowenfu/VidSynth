@@ -176,6 +176,7 @@ assets/
 # 工作区目录：忽略产物但保留占位符
 workspace/**
 !workspace/**/.keep
+!workspace/README.md
 
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
@@ -219,3 +220,4 @@ __marimo__/
 # Workspace (Unified File System)
 workspace/*
 !workspace/**/.gitkeep
+!workspace/README.md

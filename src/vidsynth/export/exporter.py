@@ -15,7 +15,9 @@ from typing import List, Sequence
 
 import ffmpeg
 
-from vidsynth.core import PipelineConfig
+from vidsynth.core import PipelineConfig, get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass(slots=True)
@@ -66,6 +68,8 @@ class Exporter:
 
         当前 MVP 简化为单源视频：`source_video` 指向唯一输入；未来多源需在 EDL 中携带路径并为每源建立输入流。
         """
+        
+        logger.info("Starting video export. EDL items: %d, Output: %s", len(edl), output_path)
 
         # 验证输入文件存在
         if not source_video.exists():
@@ -109,11 +113,16 @@ class Exporter:
                 )
                 seg_output = ffmpeg.overwrite_output(seg_output)
                 try:
+                    # logger.debug("Rendering segment %d: %s", idx, seg_output.compile()) # compile() might require ffmpeg installed to check capabilities in some versions, but usually safe.
+                    # Just logging intent to be safe against environment issues
+                    logger.debug("Rendering segment %d/%d (%.2f-%.2f)", idx + 1, len(edl), item.t_start, item.t_end)
                     seg_output.run(quiet=True, capture_stdout=True, capture_stderr=True)
                 except ffmpeg.Error as e:  # pragma: no cover - 依赖环境 ffmpeg
                     error_msg = f"裁剪片段失败 (idx={idx}, {item.t_start}-{item.t_end}): {e}"
                     if hasattr(e, "stderr") and e.stderr:
-                        error_msg += f"\nffmpeg stderr 输出:\n{e.stderr.decode('utf-8', errors='replace')}"
+                        stderr_str = e.stderr.decode('utf-8', errors='replace')
+                        error_msg += f"\nffmpeg stderr 输出:\n{stderr_str}"
+                        logger.error("FFmpeg Error: %s", stderr_str)
                     raise RuntimeError(error_msg) from e
 
                 segment_paths.append(seg_path)
@@ -138,9 +147,13 @@ class Exporter:
             out = ffmpeg.overwrite_output(out)
 
             try:
+                logger.info("Concatenating segments...")
                 out.run(quiet=True, capture_stdout=True, capture_stderr=True)
+                logger.info("Export successful: %s", output_path)
             except ffmpeg.Error as e:  # pragma: no cover
                 error_msg = f"ffmpeg 拼接失败: {e}"
                 if hasattr(e, "stderr") and e.stderr:
-                    error_msg += f"\nffmpeg stderr 输出:\n{e.stderr.decode('utf-8', errors='replace')}"
+                    stderr_str = e.stderr.decode('utf-8', errors='replace')
+                    error_msg += f"\nffmpeg stderr 输出:\n{stderr_str}"
+                    logger.error("FFmpeg Concat Error: %s", stderr_str)
                 raise RuntimeError(error_msg) from e

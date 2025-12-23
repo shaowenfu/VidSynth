@@ -48,3 +48,20 @@ def attach_sse_handler(
     handler.setLevel(level)
     logger.addHandler(handler)
     return handler
+
+
+def get_stage_name(logger_name: str) -> str:
+    """根据 logger 名称映射到业务阶段。"""
+    if logger_name.startswith("vidsynth.segment"):
+        return "segmentation"
+    if logger_name.startswith("vidsynth.theme_match"):
+        return "matching"
+    if logger_name.startswith("vidsynth.sequence"):
+        return "sequencing"
+    if logger_name.startswith("vidsynth.export"):
+        return "export"
+    if logger_name.startswith("vidsynth.cluster"):
+        return "clustering"
+    if logger_name.startswith("vidsynth.server"):
+        return "system"
+    return "general"

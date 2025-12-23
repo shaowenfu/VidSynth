@@ -59,6 +59,8 @@ class ThemeMatcher:
         if not query.positives and not query.negatives:
             raise ValueError("ThemeQuery 至少需要正向或负向原型")
 
+        self.logger.info("Starting theme matching, theme: '%s', clips count: %d", query.theme, len(clips))
+        
         emb_models = {clip.emb_model for clip in clips}
         if len(emb_models) != 1:
             raise ValueError("所有 Clip 必须由同一 embedding 模型生成")
@@ -73,7 +75,18 @@ class ThemeMatcher:
             raise ValueError(f"暂不支持 emb_model={emb_model} 的主题匹配")
 
         text_encoder = self._ensure_text_encoder(emb_model)
-        return self._score_openclip(clips, query, context, text_encoder)
+        self.logger.debug("Generating Prompt Embedding: positives=%d, negatives=%d", len(query.positives), len(query.negatives))
+        
+        results = self._score_openclip(clips, query, context, text_encoder)
+        
+        if results:
+            avg_score = sum(r.score for r in results) / len(results)
+            max_score = results[0].score 
+            self.logger.info("Matching finished. Max score: %.4f, Avg score: %.4f", max_score, avg_score)
+            top3 = [{"id": r.clip_id, "score": r.score} for r in results[:3]]
+            self.logger.debug("Top 3 clips: %s", top3)
+            
+        return results
 
     def filter_scores(self, scores: Sequence[ThemeScore], threshold: float | None = None) -> List[ThemeScore]:
         if threshold is None:
@@ -84,6 +97,7 @@ class ThemeMatcher:
         if self._text_encoder is not None and (self._encoder_key is None or self._encoder_key == emb_model):
             return self._text_encoder
         model_name, pretrained = _parse_openclip_name(emb_model)
+        self.logger.debug("Loading Text Encoder: %s", emb_model)
         encoder = create_text_encoder(
             model_name,
             pretrained,

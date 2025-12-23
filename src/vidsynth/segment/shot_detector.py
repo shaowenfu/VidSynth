@@ -8,9 +8,12 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
+from vidsynth.core import get_logger
 from vidsynth.core.config import SegmentConfig
 
 from .types import EmbeddedSample
+
+logger = get_logger(__name__)
 
 
 def detect_shots(samples: Sequence[EmbeddedSample], config: SegmentConfig) -> List[Tuple[int, int]]:
@@ -27,7 +30,11 @@ def detect_shots(samples: Sequence[EmbeddedSample], config: SegmentConfig) -> Li
             boundaries.append(idx)
     boundaries.append(len(samples))
     segments = [(boundaries[i], boundaries[i + 1]) for i in range(len(boundaries) - 1)]
-    return [segment for segment in segments if segment[1] - segment[0] > 0]
+    
+    final_segments = [segment for segment in segments if segment[1] - segment[0] > 0]
+    logger.info("Shot detection finished. Found %d shot boundaries.", len(final_segments))
+    logger.debug("Boundaries: %s", boundaries)
+    return final_segments
 
 
 def _cosine_distance(a: NDArray[np.float32], b: NDArray[np.float32]) -> float:

@@ -83,6 +83,12 @@ class Sequencer:
         - 否则：退出选择状态。
         """
 
+        self.logger.info(
+            "Starting sequencing. Strategy: Upper=%.2f, Lower=%.2f, Min=%.2fs, Max=%.2fs", 
+            self.threshold_upper, self.threshold_lower, 
+            self.min_clip_seconds or 0, self.max_clip_seconds or 0
+        )
+
         # 构建 (video_id, clip_id) → ThemeScore 的映射，避免跨视频混淆
         score_map: Dict[tuple[str, int], ThemeScore] = {(s.video_id, s.clip_id): s for s in scores}
         # 先按 (video_id, clip_id) 排序，保证选择过程与时间线一致
@@ -95,7 +101,7 @@ class Sequencer:
             if s_val >= self.threshold_upper:
                 selected.append(clip)
                 last_selected = True
-                self.logger.info(
+                self.logger.debug(
                     "FILTER select video_id=%s clip_id=%s score=%.4f reason=upper",
                     clip.video_id,
                     clip.clip_id,
@@ -103,7 +109,7 @@ class Sequencer:
                 )
             elif last_selected and s_val >= self.threshold_lower:
                 selected.append(clip)
-                self.logger.info(
+                self.logger.debug(
                     "FILTER keep video_id=%s clip_id=%s score=%.4f reason=hysteresis",
                     clip.video_id,
                     clip.clip_id,
@@ -111,7 +117,7 @@ class Sequencer:
                 )
             else:
                 last_selected = False
-                self.logger.info(
+                self.logger.debug(
                     "FILTER drop video_id=%s clip_id=%s score=%.4f",
                     clip.video_id,
                     clip.clip_id,
@@ -168,7 +174,7 @@ class Sequencer:
             # 最长时长约束：过长段按最大时长截断
             if self.max_clip_seconds is not None and duration > self.max_clip_seconds:
                 t_end = t_start + self.max_clip_seconds
-                self.logger.info(
+                self.logger.warning(
                     "MERGE clamp video_id=%s start=%.3f end=%.3f max=%.3f",
                     video_id,
                     t_start,
@@ -176,7 +182,7 @@ class Sequencer:
                     self.max_clip_seconds,
                 )
             edl.append(EDLItem(video_id=video_id, t_start=t_start, t_end=t_end, reason="theme_sequence"))
-            self.logger.info(
+            self.logger.debug(
                 "MERGE output video_id=%s start=%.3f end=%.3f",
                 video_id,
                 t_start,
@@ -204,4 +210,5 @@ class Sequencer:
             prev_id = clip.clip_id
             prev_end = clip.t_end
         flush(group)
+        self.logger.info("EDL merge finished. Generated %d segments.", len(edl))
         return edl

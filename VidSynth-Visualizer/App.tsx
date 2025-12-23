@@ -1,4 +1,3 @@
-
 import React, { useCallback, useEffect, useState } from 'react';
 import Step1Segmentation from './components/Step1Segmentation';
 import Step2Semantic from './components/Step2Semantic';
@@ -6,14 +5,17 @@ import Step3Log from './components/Step3Log';
 import Step4FinalCut from './components/Step4FinalCut';
 import ClusterSandbox from './components/ClusterSandbox';
 import ProjectConfigModal from './components/ProjectConfigModal';
+import LogConsoleModal from './components/LogConsoleModal';
 import { AssetRecord, VideoResource } from './types';
-import { Zap, LayoutGrid, Box, Settings2 } from 'lucide-react';
+import { Zap, LayoutGrid, Box, Settings2, Terminal } from 'lucide-react';
+import { LogProvider } from './context/LogContext';
 
-const App: React.FC = () => {
+const AppContent: React.FC = () => {
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null);
   const [videos, setVideos] = useState<VideoResource[]>([]);
   const [currentView, setCurrentView] = useState<'pipeline' | 'sandbox'>('pipeline');
   const [isProjectConfigOpen, setIsProjectConfigOpen] = useState(false);
+  const [isLogConsoleOpen, setIsLogConsoleOpen] = useState(false);
   const [isLoadingAssets, setIsLoadingAssets] = useState(true);
   const [assetsError, setAssetsError] = useState<string | null>(null);
   const [seekRequest, setSeekRequest] = useState<{ videoId: string; time: number } | null>(null);
@@ -116,6 +118,15 @@ const App: React.FC = () => {
            </div>
 
            <div className="flex items-center gap-4">
+               {/* Log Console Button */}
+               <button 
+                  onClick={() => setIsLogConsoleOpen(true)}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-800 transition-colors border border-transparent hover:border-slate-700"
+                >
+                  <Terminal size={14} />
+                  Logs
+               </button>
+
                {/* Project Settings Button */}
                <button 
                   onClick={() => setIsProjectConfigOpen(true)}
@@ -221,8 +232,22 @@ const App: React.FC = () => {
           onRefreshAssets={refreshAssets}
         />
 
+        {/* Log Console Modal */}
+        <LogConsoleModal 
+          isOpen={isLogConsoleOpen}
+          onClose={() => setIsLogConsoleOpen(false)}
+        />
+
       </div>
     </div>
+  );
+};
+
+const App: React.FC = () => {
+  return (
+    <LogProvider>
+      <AppContent />
+    </LogProvider>
   );
 };
 
