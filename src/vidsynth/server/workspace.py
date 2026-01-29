@@ -23,6 +23,7 @@ SEGMENTATION_DIR = WORKSPACE_ROOT / "segmentation"
 THEMES_DIR = WORKSPACE_ROOT / "themes"
 EDL_DIR = WORKSPACE_ROOT / "edl"
 EXPORTS_DIR = WORKSPACE_ROOT / "exports"
+CONFIGS_DIR = WORKSPACE_ROOT / "configs"
 
 
 def ensure_workspace_layout() -> None:
@@ -37,5 +38,6 @@ def ensure_workspace_layout() -> None:
         THEMES_DIR,
         EDL_DIR,
         EXPORTS_DIR,
+        CONFIGS_DIR,
     ):
         path.mkdir(parents=True, exist_ok=True)

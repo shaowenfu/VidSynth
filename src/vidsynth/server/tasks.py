@@ -11,7 +11,7 @@ import threading
 import time
 from typing import Any, Deque, Dict, Iterable, List, Optional
 
-from vidsynth.core import Clip, load_config, get_logger
+from vidsynth.core import Clip, PipelineConfig, load_config, get_logger
 from vidsynth.segment import segment_video
 
 from .events import EventBroadcaster
@@ -85,6 +85,9 @@ class TaskManager:
             "active": self._active,
             "pending": list(self._queue),
         }
+
+    def update_config(self, config: PipelineConfig) -> None:
+        self._config = config
 
     def snapshot(self) -> Dict[str, Any]:
         with self._lock:

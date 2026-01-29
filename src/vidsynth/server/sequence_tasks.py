@@ -13,7 +13,7 @@ import threading
 import time
 from typing import Any, Deque, Dict, Iterable, List, Optional
 
-from vidsynth.core import Clip, ThemeScore, get_logger, load_config
+from vidsynth.core import Clip, ThemeScore, get_logger
 from vidsynth.core.logging_utils import attach_sse_handler
 from vidsynth.sequence import Sequencer
 
@@ -64,7 +64,6 @@ class SequenceTaskManager:
         self._queue: Deque[SequenceJob] = deque()
         self._active: Optional[SequenceJob] = None
         self._broadcaster = broadcaster
-        self._config = load_config()
         ensure_workspace_layout()
         self._worker = threading.Thread(target=self._worker_loop, daemon=True)
         self._worker.start()

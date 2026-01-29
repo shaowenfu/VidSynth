@@ -6,8 +6,9 @@ import Step4FinalCut from './components/Step4FinalCut';
 import ClusterSandbox from './components/ClusterSandbox';
 import ProjectConfigModal from './components/ProjectConfigModal';
 import LogConsoleModal from './components/LogConsoleModal';
+import SettingsPanel from './components/SettingsPanel';
 import { AssetRecord, VideoResource, ThemeSummary } from './types';
-import { Zap, LayoutGrid, Box, Settings2, Terminal, RefreshCw } from 'lucide-react';
+import { Zap, LayoutGrid, Box, Settings2, Terminal, RefreshCw, Sliders } from 'lucide-react';
 import { LogProvider, useLogStore } from './context/LogContext';
 
 interface AppContentProps {
@@ -22,6 +23,7 @@ const AppContent: React.FC<AppContentProps> = ({ backendReady, backendStatus }) 
   const [currentView, setCurrentView] = useState<'pipeline' | 'sandbox'>('pipeline');
   const [isProjectConfigOpen, setIsProjectConfigOpen] = useState(false);
   const [isLogConsoleOpen, setIsLogConsoleOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isLoadingAssets, setIsLoadingAssets] = useState(true);
   const [assetsError, setAssetsError] = useState<string | null>(null);
   const [seekRequest, setSeekRequest] = useState<{ videoId: string; time: number; end?: number } | null>(null);
@@ -191,6 +193,15 @@ const AppContent: React.FC<AppContentProps> = ({ backendReady, backendStatus }) 
                   Logs
                </button>
 
+               {/* Settings Button */}
+               <button
+                  onClick={() => setIsSettingsOpen(true)}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-800 transition-colors border border-transparent hover:border-slate-700"
+                >
+                  <Sliders size={14} />
+                  Settings
+               </button>
+
                {/* Refresh Button */}
                <button
                  onClick={() => {
@@ -321,6 +332,12 @@ const AppContent: React.FC<AppContentProps> = ({ backendReady, backendStatus }) 
         <LogConsoleModal 
           isOpen={isLogConsoleOpen}
           onClose={() => setIsLogConsoleOpen(false)}
+        />
+
+        {/* Settings Panel */}
+        <SettingsPanel
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
         />
 
       </div>

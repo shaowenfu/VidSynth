@@ -15,10 +15,12 @@ from vidsynth.core.logging_utils import get_stage_name
 
 from .routers.assets import router as assets_router
 from .routers.segment import router as segment_router
+from .routers.settings import router as settings_router
 from .routers.theme import router as theme_router
 from .routers.sequence import router as sequence_router
 from .routers.export import router as export_router
-from .state import broadcaster
+from .settings_store import load_effective_settings
+from .state import apply_settings_bundle, broadcaster
 from .workspace import WORKSPACE_ROOT, ensure_workspace_layout
 
 
@@ -58,6 +60,7 @@ def create_app() -> FastAPI:
 
     app.include_router(assets_router)
     app.include_router(segment_router)
+    app.include_router(settings_router)
     app.include_router(theme_router)
     app.include_router(sequence_router)
     app.include_router(export_router)
@@ -66,6 +69,7 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     async def _capture_loop() -> None:
         broadcaster.set_loop(asyncio.get_running_loop())
+        apply_settings_bundle(load_effective_settings())
         # 挂载全局 SSE 日志监听器
         attach_sse_handler(root_logger, _global_log_listener)
         # 发送一条测试日志

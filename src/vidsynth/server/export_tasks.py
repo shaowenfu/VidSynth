@@ -13,7 +13,7 @@ import threading
 import time
 from typing import Any, Deque, Dict, Optional
 
-from vidsynth.core import load_config
+from vidsynth.core import PipelineConfig, load_config
 from vidsynth.export import Exporter
 
 from .events import EventBroadcaster
@@ -121,6 +121,9 @@ class ExportTaskManager:
             )
         self._publish_status(resolved_slug)
         return {"theme": theme, "theme_slug": resolved_slug, "video_id": video_id, "status": "queued"}
+
+    def update_config(self, config: PipelineConfig) -> None:
+        self._config = config
 
     def _worker_loop(self) -> None:
         while True:

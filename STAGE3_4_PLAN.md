@@ -54,11 +54,11 @@ workspace/
         *   **Duration Check**: 应用 `min/max duration` 过滤过短或过长的片段。
         *   **Merging**: 应用 `merge_gap` 合并同一视频中相邻且间隔很小的片段。
         *   **Logging**: 过程中实时产生日志 (Log Stream) 并通过 SSE 推送。
-    3.  **Save EDL**: 将筛选后的片段列表写入 `workspace/edl/{theme_slug}/{video_id}/edl.json`。
+    3.  **Save EDL**: 将筛选后的片段列表写入 `workspace/edl/{theme_slug}/edl.json`。
     4.  **Render (Stage 4)**:
         *   调用 `ffmpeg-python` 读取 `edl.json`。
         *   执行 `concat` 操作（含音频 Cross-fade 处理）。
-        *   写入 `workspace/exports/{theme_slug}/{video_id}/output.mp4`。
+        *   写入 `workspace/exports/{theme_slug}/output.mp4`。
     5.  **Finish**: 推送 `status: done` 及最终视频 URL。
 
 #### 2. 获取 EDL 数据 (`GET /api/sequence/{theme_slug}/{video_id}/edl`)
@@ -127,14 +127,14 @@ Step 3 的控制台 (`pipeline_output.stream`) 需要统一事件结构：
 **目标**: 展示真实的 EDL 和视频文件。
 
 1.  **数据源**:
-    *   **Video Player**: `src` 属性绑定到 `/static/exports/{theme_slug}/{video_id}/output.mp4` (建议加 `?t=timestamp` 防止浏览器缓存旧视频)。
+    *   **Video Player**: `src` 属性绑定到 `/static/exports/{theme_slug}/output.mp4` (建议加 `?t=timestamp` 防止浏览器缓存旧视频)。
     *   **EDL List**: 组件挂载或收到更新通知时，调用 `GET /api/sequence/{theme_slug}/{video_id}/edl`。
         *   **缩略图**: 理想情况下后端返回缩略图 URL，或者前端暂时使用原始视频的封面占位。
         *   **点击跳转**: 点击列表项，调用播放器的 `seek` 方法跳转到该片段在成片中的对应时间点 (注意：这是成片的时间轴，不是原片的时间轴，EDL 中应该包含 `accumulated_start` 或者前端动态计算)。
 
 2.  **交互**:
     *   **Export Button**: 既然视频已经生成在服务器，此按钮逻辑应为 **下载**。
-        *   Action: `window.open('/static/exports/{theme_slug}/{video_id}/output.mp4?download=true')` 或创建一个临时的 `<a>` 标签触发下载。
+        *   Action: `window.open('/static/exports/{theme_slug}/output.mp4?download=true')` 或创建一个临时的 `<a>` 标签触发下载。
 
 ---
 

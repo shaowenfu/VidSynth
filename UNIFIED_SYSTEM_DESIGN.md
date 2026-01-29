@@ -16,7 +16,7 @@ VidSynth/
   MVP_framework.md
   PROGRESS.md
   cluster.md
-  src/vidsynth/            # Python 核心库与 CLI（segment/theme_match/sequence/export）
+  src/vidsynth/            # Python 核心库与 server（服务端）
   configs/                 # baseline 配置
   scripts/                 # 辅助脚本
   tests/                   # 单测
@@ -33,8 +33,8 @@ workspace/
   thumbnails/                     # Stage0：封面缓存
   segmentation/{video_id}/clips.json            # Stage1
   themes/{theme_slug}/scores.json               # Stage2
-  edl/{theme_slug}/{video_id}/edl.json          # Stage3
-  exports/{theme_slug}/{video_id}/output.mp4    # Stage4
+  edl/{theme_slug}/edl.json                     # Stage3
+  exports/{theme_slug}/output.mp4               # Stage4
 ```
 - 工作区根目录可通过环境变量 `VIDSYNTH_WORKSPACE_ROOT` 覆盖，默认使用项目根目录下的 `workspace/`。
 
@@ -46,8 +46,8 @@ workspace/
   thumbnails/                     # Stage0：自动抽帧生成封面
   segmentation/{video_id}/clips.json            # Stage1：切分结果
   themes/{theme_slug}/scores.json               # Stage2：主题打分结果（含 video_id 字段）
-  edl/{theme_slug}/{video_id}/edl.json          # Stage3：片段选择/合并结果
-  exports/{theme_slug}/{video_id}/output.mp4    # Stage4：导出视频
+  edl/{theme_slug}/edl.json                     # Stage3：片段选择/合并结果
+  exports/{theme_slug}/output.mp4               # Stage4：导出视频
 ```
 - 后端挂载 `/static` 指向 `workspace`；前端用 `/static/...` 直接读取。
 - `theme_slug` 需对用户输入主题做 sanitize（空格/特殊字符替换为 `_`）。
@@ -75,13 +75,13 @@ workspace/
 
 ### 3.4 Stage3 片段筛选/编排（Sequencer）
 - `POST /api/sequence {theme, upper?, lower?, min_seconds?, max_seconds?, force?, video_ids?}`：基于 scores 阈值筛选并合并连续片段，生成 EDL；缓存可复用。
-- `GET /api/sequence/{theme_slug}/{video_id}/edl`：返回该视频的 EDL。
-- 产物：`edl/{theme_slug}/{video_id}/edl.json`，字段 `video_id, t_start, t_end, reason`。
+- `GET /api/sequence/{theme_slug}/edl`：返回主题 EDL。
+- 产物：`edl/{theme_slug}/edl.json`，字段 `video_id, t_start, t_end, reason`。
 
 ### 3.5 Stage4 导出（Export）
 - `POST /api/export {theme, video_id, edl_path?, source_video_path?, force?}`：按 EDL 拼接单源视频（MVP）；可未来扩展多源。
-- `GET /api/export/{theme_slug}/{video_id}`：查询导出状态/路径。
-- 产物：`exports/{theme_slug}/{video_id}/output.mp4`。
+- `GET /api/export/{theme_slug}`：查询导出状态/路径。
+- 产物：`exports/{theme_slug}/output.mp4`。
 
 ## 4. SSE 统一事件协议
 - Endpoint：`/api/events`（复用全流程）

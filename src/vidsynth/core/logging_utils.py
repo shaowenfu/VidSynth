@@ -7,7 +7,7 @@ from typing import Callable, Optional
 
 
 def setup_logging(level: str = "INFO") -> None:
-    """设置全局日志级别，默认 INFO，可在 CLI 入口覆盖。"""
+    """设置全局日志级别，默认 INFO，可在服务启动时覆盖。"""
 
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
