@@ -2,9 +2,30 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "VidSynth: Debug Server (FastAPI)",
+            "type": "python",
+            "request": "launch",
+            "python": "${workspaceFolder}/venv/bin/python",
+            "module": "uvicorn",
+            "args": [
+                "vidsynth.server.app:app",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "8000",
+                "--reload"
+            ],
+            "jinja": true,
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src"
+            }
+        },
+        {
             "name": "VidSynth: 视频切分 (带自定义参数)",
             "type": "python",
             "request": "launch",
+            "python": "${workspaceFolder}/venv/bin/python",
             "module": "vidsynth.cli",
             "args": [
                 "segment-video",
@@ -24,6 +45,7 @@
             "name": "VidSynth: 主题匹配 (match-theme)",
             "type": "python",
             "request": "launch",
+            "python": "${workspaceFolder}/venv/bin/python",
             "module": "vidsynth.cli",
             "args": [
                 "match-theme",
@@ -42,6 +64,7 @@
             "name": "VidSynth: Sequence Clips",
             "type": "python",
             "request": "launch",
+            "python": "${workspaceFolder}/venv/bin/python",
             "module": "vidsynth.cli",
             "args": [
                 "sequence-clips",
@@ -63,6 +86,7 @@
             "name": "VidSynth: Export EDL",
             "type": "python",
             "request": "launch",
+            "python": "${workspaceFolder}/venv/bin/python",
             "module": "vidsynth.cli",
             "args": [
                 "export-edl",

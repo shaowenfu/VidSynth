@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### 环境设置
 ```bash
-python -m venv venv && source venv/bin/activate
+source venv/bin/activate
 pip install -e .[dev]
 pre-commit install
 ```
@@ -104,8 +104,8 @@ workspace/
 ```
 
 **环境变量**:
-- `VIDSYNTH_WORKSPACE_ROOT`: 工作区根目录 (默认项目根目录下 `workspace/`)
-- `VIDSYNTH_STORAGE_ROOT`: 大容量存储根目录 (默认 `assets/`)
+- `VIDSYNTH_WORKSPACE_ROOT`: 工作区根目录 (默认项目根目录下 `workspace/`，可指向外部磁盘)
+- `VIDSYNTH_STORAGE_ROOT`: 原始视频存储根目录 (默认 `workspace/videos`，主要用于 core config（配置）)
 - `VIDSYNTH_CONFIG_PATH`: 配置文件路径 (默认 `configs/baseline.yaml`)
 - `.env` 文件: 敏感配置 (如 `DEEPSEEK_API_KEY`) 自动加载
 

@@ -1,8 +1,17 @@
 import json
+import os
 import numpy as np
 from datetime import datetime
 from pathlib import Path
 import subprocess
+
+
+def _resolve_workspace_root() -> Path:
+    env_value = os.getenv("VIDSYNTH_WORKSPACE_ROOT")
+    if env_value:
+        return Path(env_value).expanduser().resolve()
+    return Path(__file__).resolve().parents[1] / "workspace"
+
 
 def create_dummy_data():
     # 1. Create Dummy JSON
@@ -30,9 +39,10 @@ def create_dummy_data():
     print("Created output/clips.json")
 
     # 2. Create Dummy Video
-    assets_dir = Path("assets/raw")
-    assets_dir.mkdir(parents=True, exist_ok=True)
-    video_path = assets_dir / "video_01.mp4"
+    workspace_root = _resolve_workspace_root()
+    videos_dir = workspace_root / "videos"
+    videos_dir.mkdir(parents=True, exist_ok=True)
+    video_path = videos_dir / "video_01.mp4"
     
     # Generate 10s test video using ffmpeg
     cmd = [
@@ -42,6 +52,7 @@ def create_dummy_data():
     ]
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     print(f"Created {video_path}")
+
 
 if __name__ == "__main__":
     create_dummy_data()

@@ -22,7 +22,7 @@
 - **仓库结构**：`VidSynth-Visualizer` 已并入主仓库，移除 submodule（子模块）配置，前端代码随主仓库版本追踪。
 - **验证指南**：`docs/STEP1_VALIDATION.md`、`docs/STEP2_VALIDATION.md`。
 - **测试**：`pytest` 覆盖 core + segment，确保每次提交前运行。
-- **数据放置**：共享视频放 `workspace/videos`（前后端共用，支持 `VIDSYNTH_WORKSPACE_ROOT` 覆盖），大文件仍可存 `assets/`（或 `VIDSYNTH_STORAGE_ROOT`），测试样本放 `tests/data/`。
+- **数据放置**：共享视频放 `workspace/videos`（前后端共用，支持 `VIDSYNTH_WORKSPACE_ROOT` 覆盖到外部磁盘）；`VIDSYNTH_STORAGE_ROOT` 仅影响 core config（配置）素材根目录；测试样本放 `tests/data/`。
 
 ## 待办优先级（建议）
 1. **Stage3/4 前后端接入**：新增 `/api/sequence` 与 `/api/sequence/{theme_slug}/{video_id}/edl`、`/api/export`，完成 `output.mp4` 的播放与下载。

@@ -3,7 +3,7 @@
 主题驱动的多源视频自动编排 MVP，聚焦验证“关键帧抽样 → 视觉 embedding → 主题匹配 → 片段编排”的可行性。项目遵循奥卡姆剃刀原则：先用最小可跑 pipeline 验证逻辑，再逐步替换更高质量模型。
 
 ## 数据准备
-- **原始视频**：放在 `assets/` 或通过环境变量 `VIDSYNTH_STORAGE_ROOT` 指向的大容量磁盘。保持目录结构简单，例如 `assets/raw/{project}/{video.mp4}`。
+- **原始视频**：默认放在 `workspace/videos/`。如需外部磁盘，把环境变量 `VIDSYNTH_WORKSPACE_ROOT` 指向外部路径（推荐）；也可用 `VIDSYNTH_STORAGE_ROOT` 覆盖 core config（配置）中的素材根目录。示例：`workspace/videos/{video.mp4}`。
 - **测试样例**：体积小、可公开的 mp4 放在 `tests/data/`，用于单元测试；不要把大文件提交到 Git。
 - **视频清单**：可在 `scripts/` 下维护 CSV/JSON（数据格式），记录 `video_id`、路径、拍摄主题等，供批处理脚本使用。
 
@@ -20,7 +20,8 @@ pre-commit install
   - GPU（显卡）: `preset=gpu-large`, `device=cuda` 或 `cuda:0`
 - 全局环境变量示例：
   ```bash
-  export VIDSYNTH_STORAGE_ROOT=/data/vidsynth-assets
+  export VIDSYNTH_WORKSPACE_ROOT=/data/vidsynth-workspace
+  export VIDSYNTH_STORAGE_ROOT=/data/vidsynth-videos
   export VIDSYNTH_EMBEDDING_BACKEND=open_clip
   export VIDSYNTH_EMBEDDING_DEVICE=cuda
   ```

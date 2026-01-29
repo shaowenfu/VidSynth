@@ -7,6 +7,7 @@ from pathlib import Path
 
 
 ASSETS_ENV_KEY = "VIDSYNTH_STORAGE_ROOT"
+WORKSPACE_ENV_KEY = "VIDSYNTH_WORKSPACE_ROOT"
 
 
 def resolve_assets_root(default: Path | None = None) -> Path:
@@ -17,5 +18,8 @@ def resolve_assets_root(default: Path | None = None) -> Path:
         return Path(env_value).expanduser().resolve()
     if default is not None:
         return default.expanduser().resolve()
-    # 默认回退到仓库内的 assets 目录，保持简单可用
-    return Path(__file__).resolve().parents[2] / "assets"
+    workspace_override = os.getenv(WORKSPACE_ENV_KEY)
+    if workspace_override:
+        return (Path(workspace_override).expanduser().resolve() / "videos")
+    # 默认回退到仓库内的 workspace/videos，保持与运行时一致
+    return Path(__file__).resolve().parents[3] / "workspace" / "videos"

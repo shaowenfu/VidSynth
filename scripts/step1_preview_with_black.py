@@ -4,6 +4,7 @@ import json
 import shutil
 import subprocess
 import sys
+import os
 from pathlib import Path
 
 
@@ -67,11 +68,26 @@ def _run(cmd: list[str]) -> None:
     subprocess.run(cmd, check=True)
 
 
+def _resolve_workspace_root() -> Path:
+    env_value = os.getenv("VIDSYNTH_WORKSPACE_ROOT")
+    if env_value:
+        return Path(env_value).expanduser().resolve()
+    return Path(__file__).resolve().parents[1] / "workspace"
+
+
+def _default_video_path() -> str:
+    return str(_resolve_workspace_root() / "videos" / "ComparingSnowGoggles.mp4")
+
+
+def _default_output_dir() -> str:
+    return str(_resolve_workspace_root() / "exports" / "step1_preview")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--video", default="assets/raw/ComparingSnowGoggles.mp4")
+    ap.add_argument("--video", default=_default_video_path())
     ap.add_argument("--clips", default="output/clips.json")
-    ap.add_argument("--output-dir", default="assets/step1_results")
+    ap.add_argument("--output-dir", default=_default_output_dir())
     ap.add_argument("--black-duration", type=float, default=1.0)
     args = ap.parse_args()
 
